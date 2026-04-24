@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CommandFlow — Productivity Command Workspace</title>
+    <meta name="description" content="A unified productivity workspace for focus sessions, tasks, scheduling, leads, and team coordination.">
+    <meta name="theme-color" content="#1a1a1a">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="CommandFlow">
+    <link rel="icon" type="image/svg+xml" href="/static/icon-192.svg">
+    <link rel="manifest" href="/static/manifest.json">
+    <link rel="stylesheet" href="/static/css/style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@300;400;500;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              primary: '#1a1a1a',
+              'primary-dim': '#2d3748',
+              surface: '#ffffff',
+              outline: '#a0aec0',
+              'surface-container-low': '#f8fafc',
+              'surface-container-high': '#edf2f7',
+            }
+          }
+        }
+      }
+    </script>
+
+</head>
+<body>
+    <!-- Auth Layer -->
+    <div id="auth-container" class="hidden"></div>
+
+    <div id="app-shell" class="hidden">
+        <!-- Mobile Header (Tactile) -->
+        <header id="mobile-header" class="mobile-only fixed top-0 w-full z-50 bg-[#f7f9fc]/70 backdrop-blur-xl flex justify-between items-center px-6 py-4 shadow-[6px_8px_16px_rgba(41,52,58,0.06),-6px_-6px_12px_rgba(255,255,255,0.8)]">
+            <div class="flex items-center gap-3">
+                <button id="menu-toggle" class="btn-icon neumorphic-raised" style="width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center;">
+                    <span class="material-symbols-outlined" style="font-size: 20px;">menu</span>
+                </button>
+                <div class="mobile-brand" style="background:none; box-shadow:none; padding:0;">
+                    <span style="font-weight: 800; font-size: 1rem; letter-spacing: -0.05em; color: #333;">COMMANDFLOW</span>
+                </div>
+            </div>
+            <button class="btn-icon" onclick="showNotifications()" style="color: #5f5e5e; position:relative;">
+                <span class="material-symbols-outlined">notifications</span>
+                <span id="mobile-notif-count" class="notif-count hidden">0</span>
+            </button>
+        </header>
+
+        <div id="sidebar-overlay" class="mobile-only hidden" onclick="toggleSidebar()"></div>
+
+        <!-- Sidebar Navigation -->
+        <aside id="sidebar">
+            <div class="sb-header">
+                <div class="sb-logo">
+                    <span class="material-symbols-outlined">dashboard</span>
+                </div>
+                <div class="sb-brand">
+                    <h1>CommandFlow</h1>
+                    <p>Productivity Command Center</p>
+                </div>
+            </div>
+
+            <nav class="sb-nav">
+                <a class="nav-item active" data-view="dashboard">
+                    <span class="material-symbols-outlined">dashboard</span>
+                    <span>Dashboard</span>
+                </a>
+                <a class="nav-item" data-view="planner">
+                    <span class="material-symbols-outlined">grid_view</span>
+                    <span>Matrix</span>
+                </a>
+                <a class="nav-item" data-view="task-hub">
+                    <span class="material-symbols-outlined">checklist</span>
+                    <span>Task Hub</span>
+                </a>
+                <a class="nav-item" data-view="tasks">
+                    <span class="material-symbols-outlined">priority_high</span>
+                    <span>Priorities</span>
+                </a>
+                <a class="nav-item" data-view="pomodoro">
+                    <span class="material-symbols-outlined">timer</span>
+                    <span>Focus Mode</span>
+                </a>
+                <a class="nav-item" data-view="schedule">
+                    <span class="material-symbols-outlined">calendar_today</span>
+                    <span>Schedule</span>
+                </a>
+                <a class="nav-item" data-view="tracker">
+                    <span class="material-symbols-outlined">speed</span>
+                    <span>Velocity</span>
+                </a>
+                <a class="nav-item" data-view="team-grid">
+                    <span class="material-symbols-outlined">table_chart</span>
+                    <span>Team Radar</span>
+                </a>
+                <a class="nav-item" data-view="leads">
+                    <span class="material-symbols-outlined">person_add</span>
+                    <span>Leads</span>
+                </a>
+                <a class="nav-item" data-view="invites">
+                    <span class="material-symbols-outlined">mail</span>
+                    <span>Invites</span>
+                </a>
+                <a class="nav-item" data-view="notifications">
+                    <span class="material-symbols-outlined">notifications</span>
+                    <span>Notifications</span>
+                </a>
+
+                <div style="margin-top:1.5rem;padding:0.5rem 1.25rem;">
+                    <span class="label-overline" style="font-size:0.55rem;color:var(--outline);">SYSTEM</span>
+                </div>
+                <a class="nav-item" data-view="automation">
+                    <span class="material-symbols-outlined">settings_suggest</span>
+                    <span>Automation Guide</span>
+                </a>
+            </nav>
+
+            <div class="sb-footer">
+                <div id="sb-user-card" class="mb-6 card-recessed" style="padding:1rem;display:flex;align-items:center;gap:1rem;">
+                    <div style="width:32px;height:32px;border-radius:50%;background:var(--primary);color:white;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:0.8rem;" id="user-avatar">A</div>
+                    <div style="flex:1;overflow:hidden;">
+                        <div id="user-name" style="font-weight:800;font-size:0.8rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">Ansh</div>
+                        <div style="font-size:0.6rem;color:var(--outline);">Active Protocol</div>
+                    </div>
+                    <button onclick="handleLogout()" style="background:none;border:none;cursor:pointer;color:var(--outline);"><span class="material-symbols-outlined" style="font-size:18px;">logout</span></button>
+                </div>
+
+                <button class="sb-footer-btn" id="new-initiative-btn">
+                    <span class="material-symbols-outlined" style="font-size: 18px; vertical-align: middle;">add</span>
+                    <span>New Initiative</span>
+                </button>
+                <div style="margin-top: 1.5rem; display: flex; flex-direction: column; gap: 0.5rem;">
+                    <a class="nav-item" data-view="settings" style="margin: 0; padding: 0.5rem 0.75rem; font-size: 0.7rem;">
+                        <span class="material-symbols-outlined" style="font-size: 18px;">settings</span>
+                        <span class="nav-label">Settings</span>
+                    </a>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Workspace -->
+        <main id="main-view">
+            <!-- Top Navigation Bar -->
+            <header id="top-bar">
+                <div class="breadcrumb">
+                    <span id="breadcrumb-root">CommandFlow</span>
+                    <span class="material-symbols-outlined" style="font-size:16px;opacity:0.3;">chevron_right</span>
+                    <span id="breadcrumb-current">Dashboard</span>
+                </div>
+                <div class="top-bar-actions">
+                    <button class="btn-icon" onclick="showQuickActionModal()" title="Quick Action (Q / Ctrl+K)">
+                        <span class="material-symbols-outlined">add_circle</span>
+                    </button>
+                    <div class="search-bar">
+                        <span class="material-symbols-outlined">search</span>
+                        <input type="text" placeholder="Search workspace..." oninput="handleSearch(this.value)">
+                    </div>
+                    <div class="top-bar-utils">
+                        <button class="btn-icon" onclick="showNotifications()" style="position:relative;">
+                            <span class="material-symbols-outlined">notifications</span>
+                            <div id="notif-pulse" class="pulse-dot hidden" style="position:absolute;top:8px;right:8px;width:8px;height:8px;background:var(--error);"></div>
+                            <span id="notif-count" class="notif-count hidden">0</span>
+                        </button>
+                    </div>
+                </div>
+            </header>
+
+            <div id="view-dashboard" class="view-container"></div>
+            <div id="view-schedule" class="view-container hidden"></div>
+            <div id="view-pomodoro" class="view-container hidden"></div>
+            <div id="view-tasks" class="view-container hidden"></div>
+            <div id="view-tracker" class="view-container hidden"></div>
+            <div id="view-planner" class="view-container hidden"></div>
+            <div id="view-leads" class="view-container hidden"></div>
+            <div id="view-team-grid" class="view-container hidden"></div>
+            <div id="view-settings" class="view-container hidden"></div>
+            <div id="view-todoist" class="view-container hidden"></div>
+            <div id="view-automation" class="view-container hidden"></div>
+            <div id="view-task-hub" class="view-container hidden"></div>
+            <div id="view-invites" class="view-container hidden"></div>
+            <div id="view-notifications" class="view-container hidden"></div>
+        </main>
+
+        <!-- Mobile Bottom Nav Bar (Tactile) -->
+        <nav id="mobile-nav" class="mobile-only fixed bottom-0 left-0 w-full z-50 bg-[#f7f9fc] flex justify-around items-center px-8 pb-8 pt-4 rounded-t-[32px] shadow-[0_-10px_25px_rgba(41,52,58,0.04)]">
+            <button class="nav-btn p-3 active:scale-90 transition-all duration-200 ease-out" data-view="tasks">
+                <span class="material-symbols-outlined">checklist</span>
+            </button>
+            <button class="nav-btn bg-[#d9e4ec] shadow-[inset_2px_2px_5px_rgba(0,0,0,0.05),inset_-2px_-2px_5px_rgba(255,255,255,0.7)] text-[#333333] p-3 rounded-2xl active:scale-90 transition-all duration-200 ease-out" data-view="dashboard">
+                <span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">analytics</span>
+            </button>
+            <button class="nav-btn p-3 active:scale-90 transition-all duration-200 ease-out" data-view="pomodoro">
+                <span class="material-symbols-outlined">timer</span>
+            </button>
+            <button class="nav-btn p-3 active:scale-90 transition-all duration-200 ease-out" data-view="leads">
+                <span class="material-symbols-outlined">person_add</span>
+            </button>
+        </nav>
+    </div>
+
+    <!-- Modals Layer -->
+    <div id="modal-container"></div>
+
+    <!-- Toast -->
+    <div id="toast-container" style="position: fixed; bottom: 2rem; right: 2rem; z-index: 1000;"></div>
+
+    <script src="/static/js/app.js?v=20260422"></script>
+    <script>
+      // Register Service Worker for PWA / offline support
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('/static/sw.js').then(reg => {
+          console.log('SW registered:', reg.scope);
+        }).catch(err => console.log('SW registration failed:', err));
+      }
+    </script>
+    <!-- Share Workspace Modal -->
+    <div id="modal-share" class="modal-overlay hidden">
+        <div class="modal-card" style="max-width:500px;">
+            <div class="flex-between mb-6">
+                <h2 style="font-size:1.5rem;">Share Workspace</h2>
+                <button class="btn-icon" onclick="closeModal('share')"><span class="material-symbols-outlined">close</span></button>
+            </div>
+            <p style="font-size:0.85rem;color:var(--outline);margin-bottom:1.5rem;">Invite collaborators to specific sections of your workspace.</p>
+            
+            <div class="auth-input-group">
+                <label>RECIPIENT EMAIL</label>
+                <div class="input-well">
+                    <span class="material-symbols-outlined">mail</span>
+                    <input type="email" id="share-email" class="input-recessed" placeholder="colleague@example.com">
+                </div>
+            </div>
+
+            <div class="auth-input-group">
+                <label>SECTION ACCESS</label>
+                <div class="input-well">
+                    <span class="material-symbols-outlined">grid_view</span>
+                    <select id="share-section" class="input-recessed" style="background:transparent;border:none;width:100%;">
+                        <option value="task-hub">Mission Matrix (Task Hub)</option>
+                        <option value="team-grid">Team Radar (Grid View)</option>
+                        <option value="schedule">Shared Schedule</option>
+                        <option value="leads">Business Pipeline (Leads)</option>
+                        <option value="tracker">Velocity Tracker (Pomodoro)</option>
+                        <option value="all">Full Workspace Access</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="auth-input-group">
+                <label>ROLE</label>
+                <div class="input-well">
+                    <span class="material-symbols-outlined">badge</span>
+                    <select id="share-role" class="input-recessed" style="background:transparent;border:none;width:100%;">
+                        <option value="Member">Member (View & Edit)</option>
+                        <option value="Viewer">Viewer (Read-only)</option>
+                        <option value="Admin">Admin (Full Control)</option>
+                    </select>
+                </div>
+            </div>
+
+            <button class="btn-primary" style="width:100%;margin-top:1rem;padding:1rem;" onclick="submitInvite()">SEND INVITATION</button>
+        </div>
+    </div>
+</body>
+</html>

@@ -1,0 +1,37 @@
+{
+  "name": "CommandFlow - Productivity Command Workspace",
+  "short_name": "CommandFlow",
+  "description": "A unified productivity workspace with Pomodoro, tasks, schedule, leads, and team coordination.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#fdfdfd",
+  "theme_color": "#1a1a1a",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/static/icon-192.svg",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/static/icon-512.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["productivity", "utilities"],
+  "shortcuts": [
+    {
+      "name": "Pomodoro Timer",
+      "url": "/?view=pomodoro",
+      "description": "Start a focus session"
+    },
+    {
+      "name": "My Tasks",
+      "url": "/?view=tasks",
+      "description": "View priority tasks"
+    }
+  ]
+}
