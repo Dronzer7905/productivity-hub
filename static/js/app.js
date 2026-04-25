@@ -388,16 +388,24 @@ function openModal(id) {
     if (el) el.classList.remove('hidden');
 }
 
-function closeModal(param) {
+window.closeModal = function(param) {
     if (typeof param === 'string') {
         const el = document.getElementById(`modal-${param}`);
         if (el) el.classList.add('hidden');
     } else {
         const e = param;
-        if (e && e.target !== e.currentTarget && e.target.className !== 'btn-ghost') return;
+        // If it's an event, only close if clicking the background or a dismiss button
+        if (e && e.target !== e.currentTarget && !e.target.closest('.btn-ghost') && !e.target.closest('.btn-primary')) return;
         const container = document.getElementById('modal-container');
         if (container) container.innerHTML = '';
     }
+};
+
+function getGreeting() {
+    const hour = new Date().getHours();
+    if (hour < 12) return 'Good Morning';
+    if (hour < 17) return 'Good Afternoon';
+    return 'Good Evening';
 }
 
 
@@ -1237,21 +1245,22 @@ function checkMorningSchedulePrompt() {
 
 function showMorningPromptModal() {
     const container = document.getElementById('modal-container');
+    const greeting = getGreeting();
     container.innerHTML = `
-        <div class="modal-overlay">
-            <div class="modal-card anim-pop" style="max-width:500px; text-align:center; padding: 3rem 2rem;">
+        <div class="modal-overlay" onclick="window.closeModal(event)">
+            <div class="modal-card anim-pop" style="max-width:500px; text-align:center; padding: 3rem 2rem;" onclick="event.stopPropagation()">
                 <div style="width: 64px; height: 64px; background: var(--primary); color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 1.5rem;">
                     <span class="material-symbols-outlined" style="font-size: 32px;">wb_sunny</span>
                 </div>
-                <h2 style="font-size: 1.75rem; font-weight: 800; margin-bottom: 0.5rem;">Good Morning, ${currentUser.display_name}</h2>
+                <h2 style="font-size: 1.75rem; font-weight: 800; margin-bottom: 0.5rem;">${greeting}, ${currentUser.display_name}</h2>
                 <p style="color: var(--outline); font-size: 0.9rem; margin-bottom: 2.5rem;">Initialize your daily operations pipeline. What protocol are we running today?</p>
                 
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
-                    <button class="btn-primary" style="padding: 1.5rem 1rem; flex-direction: column; height: auto;" onclick="setScheduleMode('college'); closeModal();">
+                    <button class="btn-primary" style="padding: 1.5rem 1rem; flex-direction: column; height: auto; display: flex; align-items: center; justify-content: center;" onclick="window.setScheduleMode('college'); window.closeModal();">
                         <span class="material-symbols-outlined" style="font-size: 24px; margin-bottom: 0.5rem;">school</span>
                         <span>College Day</span>
                     </button>
-                    <button class="btn-ghost neumorphic-raised" style="padding: 1.5rem 1rem; flex-direction: column; height: auto; border: 1px solid var(--outline-variant);" onclick="setScheduleMode('break'); closeModal();">
+                    <button class="btn-ghost neumorphic-raised" style="padding: 1.5rem 1rem; flex-direction: column; height: auto; border: 1px solid var(--outline-variant); display: flex; align-items: center; justify-content: center;" onclick="window.setScheduleMode('break'); window.closeModal();">
                         <span class="material-symbols-outlined" style="font-size: 24px; margin-bottom: 0.5rem;">home</span>
                         <span>Break Day</span>
                     </button>
@@ -1262,6 +1271,7 @@ function showMorningPromptModal() {
         </div>
     `;
 }
+
 
 
 async function loadSchedule() {
