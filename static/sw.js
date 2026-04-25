@@ -1,9 +1,11 @@
 // Atelier PWA Service Worker — Offline Cache & Background Sync
-const CACHE_NAME = 'atelier-v1';
+const CACHE_NAME = 'atelier-v2';
 const STATIC_ASSETS = [
   '/',
   '/static/css/style.css',
   '/static/js/app.js',
+  '/static/icon-192.svg',
+  '/static/icon-512.svg',
   'https://fonts.googleapis.com/css2?family=Manrope:wght@200;300;400;500;600;700;800&display=swap',
 ];
 
