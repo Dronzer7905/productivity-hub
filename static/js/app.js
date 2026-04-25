@@ -32,6 +32,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         initButtons();
         initMobileMenu();
         initResponsiveEnhancements();
+        checkMorningSchedulePrompt();
         document.addEventListener('visibilitychange', () => {
             if (!document.hidden) {
                 loadPomodoroState();
@@ -387,10 +388,18 @@ function openModal(id) {
     if (el) el.classList.remove('hidden');
 }
 
-function closeModal(id) {
-    const el = document.getElementById(`modal-${id}`);
-    if (el) el.classList.add('hidden');
+function closeModal(param) {
+    if (typeof param === 'string') {
+        const el = document.getElementById(`modal-${param}`);
+        if (el) el.classList.add('hidden');
+    } else {
+        const e = param;
+        if (e && e.target !== e.currentTarget && e.target.className !== 'btn-ghost') return;
+        const container = document.getElementById('modal-container');
+        if (container) container.innerHTML = '';
+    }
 }
+
 
 function initButtons() {
     const newBtn = document.getElementById('new-initiative-btn');
@@ -748,10 +757,8 @@ function showQuickActionModal() {
     `;
 }
 
-function closeModal(e) {
-    if (e && e.target !== e.currentTarget && e.target.className !== 'btn-ghost') return;
-    document.getElementById('modal-container').innerHTML = '';
-}
+// closeModal merged above
+
 
 function showNewTaskForm() {
     closeModal();
@@ -1201,12 +1208,61 @@ const SCHED_CAT = {
     bonus:    { label: 'Bonus Time', color: '#5fffc8', icon: 'stars' }
 };
 
-let currentScheduleMode = new Date().getDay() === 0 || new Date().getDay() === 6 ? 'break' : 'college';
+const SCHEDULE_CHOICE_KEY = 'commandflow_schedule_choice';
+
+let currentScheduleMode = (function() {
+    const saved = JSON.parse(localStorage.getItem(SCHEDULE_CHOICE_KEY) || 'null');
+    const today = new Date().toISOString().split('T')[0];
+    if (saved && saved.date === today) {
+        return saved.mode;
+    }
+    return new Date().getDay() === 0 || new Date().getDay() === 6 ? 'break' : 'college';
+})();
 
 window.setScheduleMode = function(mode) {
     currentScheduleMode = mode;
+    const today = new Date().toISOString().split('T')[0];
+    localStorage.setItem(SCHEDULE_CHOICE_KEY, JSON.stringify({ mode, date: today }));
     loadSchedule();
 };
+
+function checkMorningSchedulePrompt() {
+    if (!currentUser) return;
+    const saved = JSON.parse(localStorage.getItem(SCHEDULE_CHOICE_KEY) || 'null');
+    const today = new Date().toISOString().split('T')[0];
+    if (!saved || saved.date !== today) {
+        showMorningPromptModal();
+    }
+}
+
+function showMorningPromptModal() {
+    const container = document.getElementById('modal-container');
+    container.innerHTML = `
+        <div class="modal-overlay">
+            <div class="modal-card anim-pop" style="max-width:500px; text-align:center; padding: 3rem 2rem;">
+                <div style="width: 64px; height: 64px; background: var(--primary); color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 1.5rem;">
+                    <span class="material-symbols-outlined" style="font-size: 32px;">wb_sunny</span>
+                </div>
+                <h2 style="font-size: 1.75rem; font-weight: 800; margin-bottom: 0.5rem;">Good Morning, ${currentUser.display_name}</h2>
+                <p style="color: var(--outline); font-size: 0.9rem; margin-bottom: 2.5rem;">Initialize your daily operations pipeline. What protocol are we running today?</p>
+                
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                    <button class="btn-primary" style="padding: 1.5rem 1rem; flex-direction: column; height: auto;" onclick="setScheduleMode('college'); closeModal();">
+                        <span class="material-symbols-outlined" style="font-size: 24px; margin-bottom: 0.5rem;">school</span>
+                        <span>College Day</span>
+                    </button>
+                    <button class="btn-ghost neumorphic-raised" style="padding: 1.5rem 1rem; flex-direction: column; height: auto; border: 1px solid var(--outline-variant);" onclick="setScheduleMode('break'); closeModal();">
+                        <span class="material-symbols-outlined" style="font-size: 24px; margin-bottom: 0.5rem;">home</span>
+                        <span>Break Day</span>
+                    </button>
+                </div>
+                
+                <p style="margin-top: 2rem; font-size: 0.7rem; color: var(--outline-variant); font-weight: 600; text-transform: uppercase; letter-spacing: 0.1em;">You can switch modes anytime from the Daily Ops view.</p>
+            </div>
+        </div>
+    `;
+}
+
 
 async function loadSchedule() {
     await fetchBlocks();
@@ -1377,7 +1433,7 @@ function renderTimeline() {
                             <h3 class="text-sm font-extrabold text-on-surface tracking-tight">${b.title}</h3>
                         </div>
                         <div class="flex gap-2">
-                            <button onclick='showEditBlockModal(${JSON.stringify(b).replace(/'/g, "&apos;")})' class="w-9 h-9 rounded-xl bg-surface-container-low flex items-center justify-center text-outline-variant active:scale-95 transition-all">
+                            <button onclick="showEditBlockModal(${b.id})" class="w-9 h-9 rounded-xl bg-surface-container-low flex items-center justify-center text-outline-variant active:scale-95 transition-all">
                                 <span class="material-symbols-outlined text-base">edit</span>
                             </button>
                             <button onclick="deleteBlock(${b.id})" class="w-9 h-9 rounded-xl bg-error/5 flex items-center justify-center text-error active:scale-95 transition-all">
@@ -1422,7 +1478,7 @@ function renderTimeline() {
                             ${isActive ? '<span class="pill pill-green pulse-dot" style="font-size:0.55rem;padding:0.1rem 0.4rem;">NOW</span>' : ''}
                         </div>
                         <div style="display:flex;gap:0.5rem;">
-                            <button onclick='showEditBlockModal(${JSON.stringify(b).replace(/'/g, "&apos;")})' style="background:none;border:none;cursor:pointer;color:var(--outline-variant);">
+                            <button onclick="showEditBlockModal(${b.id})" style="background:none;border:none;cursor:pointer;color:var(--outline-variant);">
                                 <span class="material-symbols-outlined" style="font-size:18px;">edit</span>
                             </button>
                             <button onclick="deleteBlock(${b.id})" style="background:none;border:none;cursor:pointer;color:var(--outline-variant);">
@@ -1491,6 +1547,96 @@ async function deleteBlock(id) {
     await fetch(`/api/schedule/${id}`, { method: 'DELETE' });
     loadSchedule();
 }
+
+window.showEditBlockModal = function(id) {
+    const block = blocksCache.find(b => b.id === id);
+    if (!block) return;
+    const container = document.getElementById('modal-container');
+    const pomsMatch = (block.description || '').match(/\|poms:(\d+)/);
+    const poms = pomsMatch ? pomsMatch[1] : '';
+    const desc = (block.description || '').replace(/\|poms:\d+/, '').trim();
+    
+    container.innerHTML = `
+        <div class="modal-overlay" onclick="if(event.target===this) closeModal()">
+            <div class="modal-card anim-pop" style="max-width:500px;">
+                <h3 class="mb-6">Optimize Operation Block</h3>
+                <form onsubmit="handleUpdateBlock(event, ${block.id})">
+                    <div class="mb-4">
+                        <label class="label-sm">Block Title *</label>
+                        <input type="text" id="edit-sb-title" class="input-well w-full" value="${block.title}" required>
+                    </div>
+                    <div class="mb-4">
+                        <label class="label-sm">Sub-tasks (Dash-separated)</label>
+                        <textarea id="edit-sb-desc" class="input-well w-full" style="height:80px;">${desc}</textarea>
+                    </div>
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;" class="mb-4">
+                        <div>
+                            <label class="label-sm">Start Time</label>
+                            <input type="time" id="edit-sb-start" class="input-well w-full" value="${block.start_time}" required>
+                        </div>
+                        <div>
+                            <label class="label-sm">End Time</label>
+                            <input type="time" id="edit-sb-end" class="input-well w-full" value="${block.end_time}" required>
+                        </div>
+                    </div>
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;" class="mb-4">
+                        <div>
+                            <label class="label-sm">Category</label>
+                            <select id="edit-sb-cat" class="input-well w-full">
+                                ${Object.entries(SCHED_CAT).map(([k,v]) => `<option value="${k}" ${block.category===k?'selected':''}>${v.label}</option>`).join('')}
+                            </select>
+                        </div>
+                        <div>
+                            <label class="label-sm">Day Type</label>
+                            <select id="edit-sb-day-type" class="input-well w-full">
+                                <option value="college" ${block.day_type==='college'?'selected':''}>🎓 College Day</option>
+                                <option value="break" ${block.day_type==='break'?'selected':''}>🏠 Break Day</option>
+                                <option value="daily" ${block.day_type==='daily'?'selected':''}>📅 Every Day</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="mb-6">
+                        <label class="label-sm">Target Pomodoros</label>
+                        <input type="number" id="edit-sb-poms" class="input-well w-full" value="${poms}" placeholder="Auto">
+                    </div>
+                    <div style="display:flex;gap:1rem;">
+                        <button type="button" class="btn-ghost flex-1" onclick="closeModal()">Cancel</button>
+                        <button type="submit" class="btn-primary flex-1">Apply Changes</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    `;
+}
+
+async function handleUpdateBlock(e, id) {
+    e.preventDefault();
+    const poms = document.getElementById('edit-sb-poms').value;
+    const desc = document.getElementById('edit-sb-desc').value;
+    const finalDesc = poms ? `${desc} |poms:${poms}` : desc;
+    
+    const body = {
+        title: document.getElementById('edit-sb-title').value,
+        description: finalDesc,
+        start_time: document.getElementById('edit-sb-start').value,
+        end_time: document.getElementById('edit-sb-end').value,
+        category: document.getElementById('edit-sb-cat').value,
+        color: SCHED_CAT[document.getElementById('edit-sb-cat').value].color,
+        icon: SCHED_CAT[document.getElementById('edit-sb-cat').value].icon,
+        day_type: document.getElementById('edit-sb-day-type').value
+    };
+
+    await fetch(`/api/schedule/${id}`, {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(body)
+    });
+    
+    showToast('Operation optimized');
+    closeModal();
+    loadSchedule();
+}
+
 
 // ═══════════════════════════════════════════════════════
 // POMODORO — Temporal Engine
