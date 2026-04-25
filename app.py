@@ -11,6 +11,7 @@ Run:
 Then open http://localhost:5000 in your browser.
 """
 
+import os
 from flask import Flask, render_template, send_from_directory
 from flask_login import LoginManager
 
@@ -42,6 +43,9 @@ from routes.notifications import notifications_bp
 def create_app():
     app = Flask(__name__)
     app.config.from_object(Config)
+
+    # Ensure the instance folder exists for the database
+    os.makedirs(app.instance_path, exist_ok=True)
 
     # Initialize extensions
     db.init_app(app)
@@ -78,5 +82,11 @@ def create_app():
 
 if __name__ == "__main__":
     app = create_app()
-    print("\n  Productivity Hub running at http://localhost:5000\n")
-    app.run(debug=True, port=5000)
+    host = app.config.get("HOST", "0.0.0.0")
+    port = app.config.get("PORT", 5000)
+    debug = app.config.get("DEBUG", False)
+    
+    print(f"\n  Productivity Hub running at http://{host}:{port}")
+    print(f"  Debug Mode: {'Enabled' if debug else 'Disabled'}\n")
+    
+    app.run(host=host, port=port, debug=debug)
