@@ -1180,7 +1180,8 @@ async function updateDashActiveBlock() {
     const now = new Date();
     const curTime = now.getHours() * 60 + now.getMinutes();
     const current = blocksCache.find(b => {
-        return curTime >= timeToMin(b.start_time) && curTime < timeToMin(b.end_time);
+        const isCorrectMode = b.day_type === currentScheduleMode || b.day_type === 'daily';
+        return isCorrectMode && curTime >= timeToMin(b.start_time) && curTime < timeToMin(b.end_time);
     });
 
     const title = document.getElementById('dash-block-title');
@@ -1231,7 +1232,8 @@ window.setScheduleMode = function(mode) {
     currentScheduleMode = mode;
     const today = new Date().toISOString().split('T')[0];
     localStorage.setItem(SCHEDULE_CHOICE_KEY, JSON.stringify({ mode, date: today }));
-    loadSchedule();
+    // Refresh the current view to reflect changes
+    renderPage(currentPage);
 };
 
 function checkMorningSchedulePrompt() {
