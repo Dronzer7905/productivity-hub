@@ -20,7 +20,10 @@ class Task(db.Model):
     description = db.Column(db.Text, nullable=True)
     assignee = db.Column(db.String(100), nullable=True)
     checklist = db.Column(db.Text, nullable=True) # JSON string
+    day_type = db.Column(db.String(50), default="any")
     is_private = db.Column(db.Boolean, default=True)
+    poms_target = db.Column(db.Integer, default=1)
+    poms_done = db.Column(db.Integer, default=0)
     completed_at = db.Column(db.DateTime, nullable=True)
     created_at = db.Column(
         db.DateTime, default=lambda: datetime.now(timezone.utc)
@@ -39,10 +42,13 @@ class Task(db.Model):
             "due_time": self.due_time,
             "recurring": self.recurring,
             "completed": self.completed,
+            "day_type": self.day_type,
             "is_private": self.is_private,
             "description": self.description,
             "assignee": self.assignee,
             "checklist": self.checklist,
+            "poms_target": self.poms_target,
+            "poms_done": self.poms_done,
             "completed_at": self.completed_at.isoformat() if self.completed_at else None,
             "created_at": self.created_at.isoformat() if self.created_at else None,
         }

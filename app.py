@@ -19,6 +19,7 @@ from config import Config
 from models import db
 from models.user import User, Team, TeamMember
 from models.schedule import ScheduleBlock
+from models.schedule_mode import ScheduleMode
 from models.pomodoro import PomodoroSession
 from models.tracker import DailyLog, AIMLLog, KPILog
 from models.planner import WeeklyPlan
@@ -76,6 +77,19 @@ def create_app():
     # Create tables
     with app.app_context():
         db.create_all()
+        
+        # Auto-migrate tasks table to add day_type if missing
+        try:
+            import sqlite3
+            db_path = os.path.join(app.instance_path, 'database.db')
+            print("Attempting to migrate DB at:", db_path)
+            conn = sqlite3.connect(db_path)
+            conn.execute("ALTER TABLE tasks ADD COLUMN day_type VARCHAR(50) DEFAULT 'any'")
+            conn.commit()
+            conn.close()
+            print("Migration successful: added day_type to tasks.")
+        except Exception as e:
+            print("Migration skipped or failed:", e)
 
     return app
 

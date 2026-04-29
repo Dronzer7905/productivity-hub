@@ -7,9 +7,11 @@
 let currentUser = null;
 let currentPage = 'dashboard';
 let blocksCache = [];
+let scheduleModes = [];
 let habitState = {};
 let currentWeekOffset = 0;
 let pomTimer = null;
+let plannerSaveTimer = null;
 let pomTimeLeft = 25 * 60;
 let pomIsRunning = false;
 let dashTimer = null;
@@ -18,6 +20,7 @@ let notificationPoller = null;
 let scheduleWatcher = null;
 let pomEndsAt = null;
 let activePomDuration = 25 * 60;
+let pomTaskId = null;
 
 const NOTIFIED_NOTIFICATIONS_KEY = 'commandflow_notified_notifications';
 const POMODORO_STATE_KEY = 'commandflow_pomodoro_state';
@@ -38,7 +41,10 @@ document.addEventListener('DOMContentLoaded', async () => {
                 loadPomodoroState();
                 checkPomodoroDeadline();
                 updatePomDisplay();
+                if (typeof ensurePomTimerRunning === 'function') ensurePomTimerRunning();
                 checkScheduleNotifications();
+                // Refresh current page data if applicable
+                if (typeof renderPage === 'function' && currentPage) renderPage(currentPage);
             }
         });
     } catch (e) {
@@ -93,6 +99,7 @@ function getSeenNotificationIds() {
 function rememberSeenNotificationIds(ids) {
     localStorage.setItem(getNotificationStorageKey(), JSON.stringify(Array.from(new Set(ids))));
 }
+
 
 function updateNotificationPulse(unreadCount = 0) {
     const pulse = document.getElementById('notif-pulse');
@@ -184,7 +191,8 @@ function savePomodoroState() {
         pomIsRunning,
         pomEndsAt,
         pomTaskInput,
-        activePomDuration
+        activePomDuration,
+        pomTaskId
     }));
 }
 
@@ -196,6 +204,7 @@ function loadPomodoroState() {
         pomTaskInput = saved.pomTaskInput || '';
         activePomDuration = saved.activePomDuration || getDefaultPomSeconds(saved.pomMode);
         pomEndsAt = saved.pomEndsAt || null;
+        pomTaskId = saved.pomTaskId || null;
         pomIsRunning = Boolean(saved.pomIsRunning && saved.pomEndsAt);
         if (pomIsRunning) {
             pomTimeLeft = Math.max(0, Math.round((saved.pomEndsAt - Date.now()) / 1000));
@@ -209,6 +218,17 @@ function loadPomodoroState() {
         }
     } catch (e) {
         console.error('Failed to load pomodoro state', e);
+    }
+}
+
+function ensurePomTimerRunning() {
+    if (pomIsRunning && pomEndsAt && !pomTimer) {
+        pomTimer = setInterval(() => {
+            pomTimeLeft = Math.max(0, Math.round((pomEndsAt - Date.now()) / 1000));
+            updatePomDisplay();
+            savePomodoroState();
+            if (pomTimeLeft <= 0) { clearInterval(pomTimer); pomTimer = null; completePom(); }
+        }, 1000);
     }
 }
 
@@ -535,6 +555,8 @@ async function checkAuth() {
             const data = await res.json();
             currentUser = data.user;
             hideAuthScreen();
+            await fetchScheduleModes();
+            initializeCurrentScheduleMode();
             updateUserUI();
             navigate(currentPage);
             startNotificationPolling();
@@ -867,13 +889,12 @@ function renderPage(page) {
 
 function renderQuickAccessLinks(links = []) {
     if (!links.length) return '';
-
     return `
-    <div class="page-shortcuts">
-        ${links.map(link => `
-            <button class="page-shortcut-btn" onclick="navigate('${link.view}')">
-                <span class="material-symbols-outlined">${link.icon}</span>
-                <span>${link.label}</span>
+    <div class="page-shortcuts" style="display:flex;gap:0.75rem;margin-bottom:2rem;overflow-x:auto;padding-bottom:0.5rem;scrollbar-width:none;flex-wrap:nowrap;">
+        ${links.map(l => `
+            <button onclick="navigate('${l.view}')" class="page-shortcut-btn" style="flex-shrink:0;display:flex;align-items:center;gap:0.5rem;">
+                <span class="material-symbols-outlined">${l.icon}</span>
+                <span>${l.label}</span>
             </button>
         `).join('')}
     </div>`;
@@ -1056,12 +1077,14 @@ async function loadDashboard() {
             <!-- Initiative -->
             <div style="flex:1;min-width: ${isMobile() ? '100%' : '300px'}; text-align:center;">
                 <span class="label-overline mb-2" style="display:block;">Primary Initiative</span>
-                <h2 id="dash-pillar-1" style="font-size:2.2rem;letter-spacing:-0.04em;line-height:1.1;">Deep Work Protocol</h2>
+                <h2 id="dash-pillar-1" style="font-size:2.2rem;letter-spacing:-0.04em;line-height:1.1;">
+                    ${pendingTasks.length > 0 ? pendingTasks[0].title : 'Deep Work Protocol'}
+                </h2>
                 <p id="dash-pillar-2" style="color:var(--on-surface-variant);font-size:0.95rem;font-style:italic;margin-top:0.75rem;line-height:1.6;">
-                    Integrating habit systems with real-time velocity tracking for optimized executive output.
+                    ${pendingTasks.length > 0 ? (pendingTasks[0].description || 'Integrating habit systems with real-time velocity tracking.') : 'Integrating habit systems with real-time velocity tracking for optimized executive output.'}
                 </p>
                 <div style="display:flex;gap:1rem;margin-top:1.5rem;justify-content:center;flex-wrap:wrap;">
-                    <button class="btn-primary" onclick="navigate('pomodoro')">▶ Start Session</button>
+                    <button class="btn-primary" onclick="${pendingTasks.length > 0 ? `linkTaskToPom(${pendingTasks[0].id}, '${pendingTasks[0].title.replace(/'/g, "\\'")}').then(() => navigate('pomodoro'))` : "navigate('pomodoro')" }">▶ Start Session</button>
                     <button class="btn-ghost" onclick="navigate('tasks')">View Tasks (${pendingTasks.length} pending)</button>
                 </div>
             </div>
@@ -1157,7 +1180,20 @@ async function loadDashboard() {
 
     updateDashActiveBlock();
     syncDashboardPillars();
-    dashTimer = setInterval(updateDashActiveBlock, 5000);
+    
+    // Auto-refresh dashboard stats every 30 seconds
+    if (dashTimer) clearInterval(dashTimer);
+    dashTimer = setInterval(() => {
+        if (currentPage === 'dashboard') {
+            loadDashboard();
+        } else {
+            clearInterval(dashTimer);
+            dashTimer = null;
+        }
+    }, 30000);
+
+    // Also run block update more frequently
+    setInterval(updateDashActiveBlock, 5000);
 }
 
 async function syncDashboardPillars() {
@@ -1207,26 +1243,50 @@ async function updateDashActiveBlock() {
 // SCHEDULE — Daily Ops
 // ═══════════════════════════════════════════════════════
 const SCHED_CAT = {
-    personal: { label: 'Personal', color: '#38c5ff', icon: 'person' },
-    transit:  { label: 'Transit', color: '#ff9f4a', icon: 'directions_bus' },
+    personal: { label: 'Personal', color: '#8b7fff', icon: 'person' },
+    learning: { label: 'Learning', color: '#4d96ff', icon: 'auto_stories' },
     college:  { label: 'College', color: '#8b7fff', icon: 'school' },
-    ai:       { label: 'AI/ML Lab', color: '#ffbe80', icon: 'psychology' },
     dt:       { label: 'DevTailored', color: '#00e5a0', icon: 'code' },
+    shop:     { label: 'Shop', color: '#ff9f4a', icon: 'storefront' },
     free:     { label: 'Free Time', color: '#ffd166', icon: 'sports_esports' },
+    sleep:    { label: 'Sleep', color: '#6c757d', icon: 'bedtime' },
+    transit:  { label: 'Transit', color: '#ff9f4a', icon: 'directions_bus' },
+    ai:       { label: 'AI/ML Lab', color: '#ffbe80', icon: 'psychology' },
     night:    { label: 'Night Grind', color: '#ff4f72', icon: 'dark_mode' },
     bonus:    { label: 'Bonus Time', color: '#5fffc8', icon: 'stars' }
 };
 
 const SCHEDULE_CHOICE_KEY = 'commandflow_schedule_choice';
 
-let currentScheduleMode = (function() {
+let currentScheduleMode = null;
+
+async function fetchScheduleModes() {
+    try {
+        const res = await fetch('/api/schedule/modes');
+        if (res.ok) {
+            scheduleModes = await res.json();
+        }
+    } catch (e) {
+        console.error("Failed to fetch schedule modes", e);
+    }
+}
+
+function initializeCurrentScheduleMode() {
+    if (scheduleModes.length === 0) return;
     const saved = JSON.parse(localStorage.getItem(SCHEDULE_CHOICE_KEY) || 'null');
     const today = new Date().toISOString().split('T')[0];
-    if (saved && saved.date === today) {
-        return saved.mode;
+    if (saved && saved.date === today && scheduleModes.find(m => m.slug === saved.mode)) {
+        currentScheduleMode = saved.mode;
+        return;
     }
-    return new Date().getDay() === 0 || new Date().getDay() === 6 ? 'break' : 'college';
-})();
+    const dayOfWeek = new Date().getDay();
+    const activeMode = scheduleModes.find(m => m.days_of_week && m.days_of_week.includes(dayOfWeek));
+    if (activeMode) {
+        currentScheduleMode = activeMode.slug;
+    } else {
+        currentScheduleMode = scheduleModes[0].slug;
+    }
+}
 
 window.setScheduleMode = function(mode) {
     currentScheduleMode = mode;
@@ -1250,22 +1310,20 @@ function showMorningPromptModal() {
     const greeting = getGreeting();
     container.innerHTML = `
         <div class="modal-overlay" onclick="window.closeModal(event)">
-            <div class="modal-card anim-pop" style="max-width:500px; text-align:center; padding: 3rem 2rem;" onclick="event.stopPropagation()">
+            <div class="modal-card anim-pop" style="max-width:560px; text-align:center; padding: 3rem 2rem;" onclick="event.stopPropagation()">
                 <div style="width: 64px; height: 64px; background: var(--primary); color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 1.5rem;">
                     <span class="material-symbols-outlined" style="font-size: 32px;">wb_sunny</span>
                 </div>
                 <h2 style="font-size: 1.75rem; font-weight: 800; margin-bottom: 0.5rem;">${greeting}, ${currentUser.display_name}</h2>
                 <p style="color: var(--outline); font-size: 0.9rem; margin-bottom: 2.5rem;">Initialize your daily operations pipeline. What protocol are we running today?</p>
                 
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
-                    <button class="btn-primary" style="padding: 1.5rem 1rem; flex-direction: column; height: auto; display: flex; align-items: center; justify-content: center;" onclick="window.setScheduleMode('college'); window.closeModal();">
-                        <span class="material-symbols-outlined" style="font-size: 24px; margin-bottom: 0.5rem;">school</span>
-                        <span>College Day</span>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 1rem;">
+                    ${scheduleModes.map(m => `
+                    <button class="btn-ghost neumorphic-raised" style="padding: 1.5rem 1rem; flex-direction: column; height: auto; border: 1px solid var(--outline-variant); display: flex; align-items: center; justify-content: center; ${currentScheduleMode === m.slug ? 'background: var(--primary); color: white; border-color: var(--primary);' : ''}" onclick="window.setScheduleMode('${m.slug}'); window.closeModal();">
+                        <span class="material-symbols-outlined" style="font-size: 24px; margin-bottom: 0.5rem;">${m.icon || 'event'}</span>
+                        <span>${m.label}</span>
                     </button>
-                    <button class="btn-ghost neumorphic-raised" style="padding: 1.5rem 1rem; flex-direction: column; height: auto; border: 1px solid var(--outline-variant); display: flex; align-items: center; justify-content: center;" onclick="window.setScheduleMode('break'); window.closeModal();">
-                        <span class="material-symbols-outlined" style="font-size: 24px; margin-bottom: 0.5rem;">home</span>
-                        <span>Break Day</span>
-                    </button>
+                    `).join('')}
                 </div>
                 
                 <p style="margin-top: 2rem; font-size: 0.7rem; color: var(--outline-variant); font-weight: 600; text-transform: uppercase; letter-spacing: 0.1em;">You can switch modes anytime from the Daily Ops view.</p>
@@ -1297,13 +1355,17 @@ async function loadSchedule() {
                     <button class="btn-ghost flex-1" onclick="showSectionGuide()">
                         <span class="material-symbols-outlined" style="font-size:1.2rem;">help_outline</span> GUIDE
                     </button>
+                    <button class="btn-ghost" onclick="showManageModesModal()" title="Manage Modes" style="padding: 0 0.5rem;">
+                        <span class="material-symbols-outlined" style="font-size:1.2rem;">settings</span>
+                    </button>
                     <button class="btn-primary flex-1" onclick="showAddBlockModal()">
                         <span class="material-symbols-outlined">add</span> ADD
                     </button>
                 </div>
-                <div style="display:flex; gap:0.5rem; background:var(--surface-container); padding:0.35rem; border-radius:var(--radius-md); width: 100%;">
-                    <button class="btn-ghost flex-1 ${currentScheduleMode === 'college' ? 'btn-primary' : ''}" style="font-size:0.8rem; padding:0.75rem;" onclick="setScheduleMode('college')">🎓 College Day</button>
-                    <button class="btn-ghost flex-1 ${currentScheduleMode === 'break' ? 'btn-primary' : ''}" style="font-size:0.8rem; padding:0.75rem;" onclick="setScheduleMode('break')">🏠 Break Day</button>
+                <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(60px, 1fr)); gap:0.35rem; background:var(--surface-container); padding:0.35rem; border-radius:var(--radius-md); width: 100%;">
+                    ${scheduleModes.map(m => `
+                    <button class="btn-ghost ${currentScheduleMode === m.slug ? 'btn-primary' : ''}" style="font-size:0.7rem; padding:0.6rem 0.3rem;" onclick="setScheduleMode('${m.slug}')">${m.label}</button>
+                    `).join('')}
                 </div>
             </div>
         </div>
@@ -1324,12 +1386,16 @@ async function loadSchedule() {
                 <h1 style="font-size:2.35rem;margin:0;">Daily Ops</h1>
             </div>
             <div class="view-header-actions" style="display:flex; gap:0.75rem; align-items:center;">
+                <button class="btn-ghost" onclick="showManageModesModal()" title="Manage Custom Schedule Modes">
+                    <span class="material-symbols-outlined" style="font-size:1.2rem;">settings</span> MODES
+                </button>
                 <button class="btn-ghost" onclick="showSectionGuide()">
                     <span class="material-symbols-outlined" style="font-size:1.2rem;">help_outline</span> GUIDE
                 </button>
                 <div style="display:flex; gap:0.5rem; background:var(--surface-container); padding:0.35rem; border-radius:var(--radius-md);">
-                    <button class="btn-ghost ${currentScheduleMode === 'college' ? 'btn-primary' : ''}" style="font-size:0.8rem; padding:0.5rem 1.25rem;" onclick="setScheduleMode('college')">🎓 College Day</button>
-                    <button class="btn-ghost ${currentScheduleMode === 'break' ? 'btn-primary' : ''}" style="font-size:0.8rem; padding:0.5rem 1.25rem;" onclick="setScheduleMode('break')">🏠 Break Day</button>
+                    ${scheduleModes.map(m => `
+                    <button class="btn-ghost ${currentScheduleMode === m.slug ? 'btn-primary' : ''}" style="font-size:0.75rem; padding:0.5rem 1rem;" onclick="setScheduleMode('${m.slug}')">${m.label}</button>
+                    `).join('')}
                 </div>
             </div>
         </div>
@@ -1386,9 +1452,8 @@ async function loadSchedule() {
                             <div>
                                 <label style="font-size:0.75rem;font-weight:700;color:var(--outline);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:0.4rem;display:block;">Day Type</label>
                                 <select class="input-recessed" style="width:100%;padding:0.75rem 1rem;border:1px solid var(--outline-variant);border-radius:var(--radius-sm);font-weight:600;" id="sb-day-type">
-                                    <option value="college" ${currentScheduleMode==='college'?'selected':''}>🎓 College Day</option>
-                                    <option value="break" ${currentScheduleMode==='break'?'selected':''}>🏠 Break Day</option>
-                                    <option value="daily" ${currentScheduleMode==='daily'?'selected':''}>📅 Every Day</option>
+                                    ${scheduleModes.map(m => `<option value="${m.slug}" ${currentScheduleMode===m.slug?'selected':''}>${m.label}</option>`).join('')}
+                                    <option value="daily">📅 Every Day</option>
                                 </select>
                             </div>
                         </div>
@@ -1509,7 +1574,7 @@ function renderTimeline() {
                         <span>${cat.label} Protocol</span>
                         <span style="display:flex;align-items:center;gap:0.3rem;">
                             ${(()=>{
-                                if (!['ai','dt','night','bonus'].includes(b.category)) return 'No Pomodoro';
+                                if (!['ai','dt','night','bonus','learning'].includes(b.category)) return 'No Pomodoro';
                                 const descRaw = b.description || '';
                                 const pomMatch = descRaw.match(/\|poms:(\d+)/);
                                 const manualPoms = pomMatch ? parseInt(pomMatch[1]) : parseInt(descRaw);
@@ -1601,8 +1666,7 @@ window.showEditBlockModal = function(id) {
                         <div>
                             <label class="label-sm">Day Type</label>
                             <select id="edit-sb-day-type" class="input-well w-full">
-                                <option value="college" ${block.day_type==='college'?'selected':''}>🎓 College Day</option>
-                                <option value="break" ${block.day_type==='break'?'selected':''}>🏠 Break Day</option>
+                                ${scheduleModes.map(m => `<option value="${m.slug}" ${block.day_type===m.slug?'selected':''}>${m.label}</option>`).join('')}
                                 <option value="daily" ${block.day_type==='daily'?'selected':''}>📅 Every Day</option>
                             </select>
                         </div>
@@ -1672,6 +1736,19 @@ async function loadPomodoro() {
         { view: 'team-grid', icon: 'table_chart', label: 'Team Radar' }
     ]);
 
+    let taskProgressHtml = '';
+    if (pomTaskId) {
+        try {
+            const r = await fetch(`/api/tasks/${pomTaskId}`);
+            if (r.ok) {
+                const t = await r.json();
+                taskProgressHtml = `<div style="font-size:0.75rem;margin-top:0.35rem;">Progress: <strong>${t.poms_done || 0}/${t.poms_target || 1}</strong> Sessions</div>`;
+            }
+        } catch(e) {
+            console.error("Failed to fetch task progress", e);
+        }
+    }
+
     const c = document.getElementById('view-pomodoro');
     if (isMobile()) {
         c.innerHTML = `
@@ -1728,6 +1805,7 @@ async function loadPomodoro() {
                     <div id="pom-linked-task" class="text-xs font-bold text-on-surface truncate">
                         ${pomTaskInput || 'Deploy a target objective...'}
                     </div>
+                    ${taskProgressHtml}
                 </div>
             </div>
 
@@ -1830,7 +1908,7 @@ async function loadPomodoro() {
 
                 <!-- Linked Task Display -->
                 <div id="pom-linked-task" style="width:100%;padding:1rem 1.25rem;background:var(--surface-container-low);border-radius:var(--radius-md);border:1px dashed var(--outline-variant);color:var(--outline);font-size:0.82rem;text-align:center;">
-                    ${pomTaskInput ? `<div style="color:var(--primary);font-weight:800;">${pomTaskInput}</div>` : 'No task linked — use the link button to connect a target'}
+                    ${pomTaskInput ? `<div style="color:var(--primary);font-weight:800;">${pomTaskInput}</div>${taskProgressHtml}` : 'No task linked — use the link button to connect a target'}
                 </div>
             </div>
 
@@ -1972,20 +2050,33 @@ async function showTaskPicker() {
     };
 }
 
-function linkTaskToPom(id, title) {
+async function linkTaskToPom(id, title) {
+    pomTaskId = id;
     pomTaskInput = title;
+    
+    let progressStr = '';
+    try {
+        const r = await fetch(`/api/tasks/${id}`);
+        if (r.ok) {
+            const t = await r.json();
+            progressStr = `<div style="font-size:0.7rem;color:var(--outline);margin-top:0.25rem;">Progress: ${t.poms_done || 0}/${t.poms_target || 1} Sessions</div>`;
+        }
+    } catch(e) {}
+
     const linkedEl = document.getElementById('pom-linked-task');
     const taskField = document.getElementById('pom-task-field');
-    if (linkedEl) linkedEl.innerHTML = `<div style="color:var(--primary);font-weight:800;">${title}</div>`;
+    if (linkedEl) linkedEl.innerHTML = `<div style="color:var(--primary);font-weight:800;">${title}</div>${progressStr}`;
     if (taskField) taskField.value = title;
+    savePomodoroState();
     document.querySelector('.modal-overlay')?.remove();
 }
 
 
 function setPomMode(mode, mins) {
     pomMode = mode;
-    activePomDuration = mins * 60;
-    pomTimeLeft = mins * 60;
+    const seconds = mins ? mins * 60 : getDefaultPomSeconds(mode);
+    activePomDuration = seconds;
+    pomTimeLeft = seconds;
     pomIsRunning = false;
     pomEndsAt = null;
     if (pomTimer) clearInterval(pomTimer);
@@ -2130,9 +2221,43 @@ async function completePom() {
         })
     });
 
+    // AUTO-COMPLETE LINKED TASK
+    if (pomMode === 'work' && pomTaskId) {
+        try {
+            const taskRes = await fetch(`/api/tasks/${pomTaskId}`);
+            if (taskRes.ok) {
+                const task = await taskRes.json();
+                const newDone = (task.poms_done || 0) + 1;
+                const target = task.poms_target || 1;
+                const isFinished = newDone >= target;
+
+                await fetch(`/api/tasks/${pomTaskId}`, {
+                    method: 'PUT',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ 
+                        poms_done: newDone,
+                        completed: isFinished 
+                    })
+                });
+
+                if (isFinished) {
+                    showToast(`Mission Accomplished: ${pomTaskInput}`);
+                    pomTaskId = null; // Clear after completion
+                    pomTaskInput = '';
+                } else {
+                    showToast(`Session Logged: ${newDone}/${target} Pomodoros`);
+                }
+            }
+        } catch (e) {
+            console.error("Failed to auto-update task", e);
+        }
+    }
+    
+    await fetchPomSessions();
+
     // Auto-cycle logic
     if (pomAutoCycle) {
-        const workCount = pomSessionsToday.filter(s => s.mode === 'work').length + 1;
+        const workCount = pomSessionsToday.filter(s => s.mode === 'work').length;
         if (pomMode === 'work') {
             if (workCount % 4 === 0) setPomMode('long', 15);
             else setPomMode('short', 5);
@@ -2142,8 +2267,12 @@ async function completePom() {
     } else {
         resetPom();
     }
-    await fetchPomSessions();
+    
     if (currentPage === 'pomodoro') loadPomodoro();
+    if (currentPage === 'dashboard') loadDashboard();
+    if (currentPage === 'tasks') loadTasks();
+    if (currentPage === 'task-hub') loadTaskHub();
+    if (currentPage === 'team-grid') loadTeamGrid();
 }
 
 function resetPom() {
@@ -2169,6 +2298,12 @@ async function loadTasks() {
         { view: 'schedule', icon: 'calendar_today', label: 'Schedule' },
         { view: 'pomodoro', icon: 'timer', label: 'Pomodoro' }
     ]);
+    
+    // Apply day mode filter
+    const activeFilterMode = window.taskHubMode || currentScheduleMode || 'any';
+    if (activeFilterMode !== 'all') {
+        tasks = tasks.filter(t => !t.day_type || t.day_type === 'any' || t.day_type === activeFilterMode);
+    }
 
     const c = document.getElementById('view-tasks');
     c.innerHTML = `
@@ -2178,23 +2313,34 @@ async function loadTasks() {
                 <span class="label-overline">Executive Overview</span>
                 <h1 style="font-size:3rem;margin:0;">Priorities</h1>
             </div>
-            <div class="view-header-actions">
-                <button class="btn-ghost" onclick="showSectionGuide()">
-                    <span class="material-symbols-outlined" style="font-size:1.2rem;">help_outline</span> GUIDE
-                </button>
-                ${isMobile() ? `
-                    <button class="btn-primary" onclick="showAddTaskModal()">
-                        <span class="material-symbols-outlined">add</span> NEW
+            <div class="view-header-actions" style="display:flex; flex-direction: column; align-items: flex-end; gap: 0.5rem;">
+                <div style="display:flex; gap:0.5rem; align-items: center;">
+                    <button class="btn-ghost" onclick="showSectionGuide()">
+                        <span class="material-symbols-outlined" style="font-size:1.2rem;">help_outline</span> GUIDE
                     </button>
-                ` : `
-                    <div class="input-well" style="width:360px;">
-                        <span class="material-symbols-outlined">add</span>
-                        <input class="input-recessed" type="text" id="new-task-input" placeholder="New objective..." onkeydown="if(event.key==='Enter')addNewTask()">
-                        <select id="new-task-priority" style="background:none;border:none;font-family:var(--font-body);font-size:0.8rem;font-weight:700;color:var(--primary);padding:0.5rem;outline:none;cursor:pointer;">
-                            <option value="1">P1</option><option value="2">P2</option><option value="3">P3</option><option value="4" selected>P4</option>
-                        </select>
-                    </div>
-                `}
+                    ${isMobile() ? `
+                        <button class="btn-primary" onclick="showAddTaskModal()">
+                            <span class="material-symbols-outlined">add</span> NEW
+                        </button>
+                    ` : `
+                        <div class="input-well" style="width:400px; display:flex; padding:0 0.5rem; gap: 0.5rem;">
+                            <span class="material-symbols-outlined">add</span>
+                            <input class="input-recessed" style="flex:1;" type="text" id="new-task-input" placeholder="New objective..." onkeydown="if(event.key==='Enter')addNewTask()">
+                            <select id="new-task-day" style="background:none;border:none;font-family:var(--font-body);font-size:0.75rem;font-weight:700;color:var(--primary);outline:none;cursor:pointer; max-width: 80px;">
+                                <option value="any">Any Day</option>
+                                ${scheduleModes.map(m => `<option value="${m.slug}" ${activeFilterMode===m.slug?'selected':''}>${m.label}</option>`).join('')}
+                            </select>
+                            <select id="new-task-priority" style="background:none;border:none;font-family:var(--font-body);font-size:0.8rem;font-weight:700;color:var(--primary);outline:none;cursor:pointer;">
+                                <option value="1">P1</option><option value="2">P2</option><option value="3">P3</option><option value="4" selected>P4</option>
+                            </select>
+                        </div>
+                    `}
+                </div>
+                <div style="display:flex; gap:0.5rem; background:var(--surface-container); padding:0.35rem; border-radius:var(--radius-md); overflow-x: auto; width: 100%; max-width: 500px; justify-content: flex-end;">
+                    <button class="btn-ghost ${activeFilterMode === 'all' ? 'btn-primary' : ''}" style="font-size:0.7rem; padding:0.4rem 0.8rem;" onclick="window.taskHubMode='all'; loadTasks()">All</button>
+                    <button class="btn-ghost ${activeFilterMode === 'any' ? 'btn-primary' : ''}" style="font-size:0.7rem; padding:0.4rem 0.8rem;" onclick="window.taskHubMode='any'; loadTasks()">Any Day</button>
+                    ${scheduleModes.map(m => `<button class="btn-ghost ${activeFilterMode === m.slug ? 'btn-primary' : ''}" style="font-size:0.7rem; padding:0.4rem 0.8rem;" onclick="window.taskHubMode='${m.slug}'; loadTasks()">${m.label}</button>`).join('')}
+                </div>
             </div>
         </div>
         ${tasksQuickLinks}
@@ -2233,7 +2379,8 @@ async function loadTasks() {
                                 </div>
                                 <div style="font-size:0.7rem;color:var(--outline);margin-top:0.4rem;display:flex;align-items:center;gap:1.25rem;">
                                     <span style="display:flex;align-items:center;gap:0.35rem;"><span class="material-symbols-outlined" style="font-size:14px;">person</span> ${t.assignee || 'Me'}</span>
-                                    ${t.priority === 1 ? '<span style="color:var(--error);font-weight:700;">HIGH PRIORITY</span>' : ''}
+                                    <span style="display:flex;align-items:center;gap:0.35rem;"><span class="material-symbols-outlined" style="font-size:14px;color:var(--primary);">timer</span> ${t.poms_done || 0}/${t.poms_target || 1}</span>
+                                    ${t.priority === 1 ? '<span style="color:var(--error);font-weight:700;">HIGH</span>' : ''}
                                 </div>
                             </div>
                             <span class="material-symbols-outlined" style="color:var(--outline-variant);font-size:1.2rem;">chevron_right</span>
@@ -2249,23 +2396,53 @@ async function loadTasks() {
 
 // ═══════════════════════════════════════════════════════
 // TASK HUB — Universal List View
-async function toggleChecklistItem(taskId, index) {
-    const r = await fetch(`/api/tasks/${taskId}`);
-    const task = await r.json();
-    let checklist = [];
-    try { checklist = task.checklist ? JSON.parse(task.checklist) : []; } catch(e) {}
-    
-    if (checklist[index]) {
-        checklist[index].done = !checklist[index].done;
-        await fetch(`/api/tasks/${taskId}`, {
-            method: 'PUT',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ checklist: JSON.stringify(checklist) })
-        });
-        if (currentPage === 'tasks') loadTasks();
-        if (currentPage === 'task-hub') loadTaskHub();
+window.toggleChecklistItem = async function(btn, taskId, index) {
+    // Optimistic UI Update
+    if (btn) {
+        const icon = btn.querySelector('.material-symbols-outlined');
+        const text = btn.querySelector('span:last-child');
+        if (icon && text) {
+            const isDone = icon.textContent.includes('check_circle');
+            if (isDone) {
+                icon.textContent = 'radio_button_unchecked';
+                icon.style.color = 'var(--outline-variant)';
+                btn.style.borderColor = 'var(--outline-variant)';
+                btn.style.opacity = '1';
+                text.style.fontWeight = '600';
+                text.style.textDecoration = 'none';
+            } else {
+                icon.textContent = 'check_circle';
+                icon.style.color = 'var(--primary)';
+                btn.style.borderColor = 'var(--primary)';
+                btn.style.opacity = '0.6';
+                text.style.fontWeight = '800';
+                text.style.textDecoration = 'line-through';
+            }
+        }
     }
-}
+
+    try {
+        const r = await fetch(`/api/tasks/${taskId}`);
+        const task = await r.json();
+        let checklist = [];
+        try { 
+            checklist = task.checklist ? JSON.parse(task.checklist) : []; 
+        } catch(e) {}
+        
+        if (checklist[index]) {
+            checklist[index].done = !checklist[index].done;
+            await fetch(`/api/tasks/${taskId}`, {
+                method: 'PUT',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ checklist: JSON.stringify(checklist) })
+            });
+            if (typeof loadTasks === 'function' && currentPage === 'tasks') loadTasks();
+            if (typeof loadTaskHub === 'function' && currentPage === 'task-hub') loadTaskHub();
+        }
+    } catch (err) {
+        console.error('Error saving checklist item', err);
+    }
+};
 
 async function showTaskDetailModal(id) {
     const r = await fetch(`/api/tasks/${id}`);
@@ -2292,22 +2469,44 @@ async function showTaskDetailModal(id) {
                     <label class="label-sm mb-2" style="display:block;">Mission Parameters</label>
                     <p style="font-size:0.9rem;line-height:1.6;color:#333;">${t.description || 'No detailed parameters defined for this objective.'}</p>
                 </div>
+
+                <div class="mb-8 p-4 neumorphic-inset rounded-2xl bg-surface-container-low flex items-center justify-between">
+                    <div>
+                        <label class="label-sm mb-1" style="display:block;">Pomodoro Progress</label>
+                        <div class="flex items-center gap-2">
+                            <span class="text-xl font-bold">${t.poms_done || 0} / ${t.poms_target || 1}</span>
+                            <span class="text-[10px] uppercase tracking-widest text-outline">Sessions Finished</span>
+                        </div>
+                    </div>
+                    <div class="flex gap-1">
+                        ${Array.from({length: t.poms_target || 1}).map((_, i) => `
+                            <span class="material-symbols-outlined" style="font-size:20px; color:${i < (t.poms_done || 0) ? 'var(--primary)' : 'var(--outline-variant)'};">
+                                ${i < (t.poms_done || 0) ? 'timer' : 'timer_off'}
+                            </span>
+                        `).join('')}
+                    </div>
+                </div>
                 
                 <div class="mb-8">
                     <label class="label-sm mb-4" style="display:block;">Execution Checklist</label>
-                    <div style="display:flex;flex-direction:column;gap:0.75rem;">
+                    <div style="display:flex;flex-direction:column;gap:0.75rem;margin-bottom:1rem;">
                         ${(() => {
                             let items = [];
-                            try { items = t.checklist ? JSON.parse(t.checklist) : [{label:'Initialize',done:true},{label:'Execute',done:false}]; } catch(e) {}
+                            try { items = t.checklist ? JSON.parse(t.checklist) : []; } catch(e) {}
+                            if (items.length === 0) return '<p style="color:var(--outline);font-size:0.8rem;">No checklist items defined.</p>';
                             return items.map((item, idx) => `
-                                <div class="task-card" style="display:flex;align-items:center;gap:1.25rem;padding:1rem;border-radius:var(--radius-md);cursor:pointer;border:1px solid ${item.done ? 'var(--primary)' : 'var(--outline-variant)'}; opacity:${item.done ? 0.6 : 1};" onclick="toggleChecklistItem(${t.id}, ${idx}); this.closest('.modal-overlay').remove(); setTimeout(()=>showTaskDetailModal(${t.id}), 300)">
-                                    <span class="material-symbols-outlined" style="color:${item.done?'var(--primary)':'var(--outline-variant)'}; font-size:1.5rem;">
+                                <div class="task-card" style="display:flex;align-items:center;gap:1.25rem;padding:1rem;border-radius:var(--radius-md);cursor:pointer;border:1px solid ${item.done ? 'var(--primary)' : 'var(--outline-variant)'}; opacity:${item.done ? 0.6 : 1}; transition: all 0.2s ease;" onclick="toggleChecklistItem(this, ${t.id}, ${idx})">
+                                    <span class="material-symbols-outlined" style="color:${item.done?'var(--primary)':'var(--outline-variant)'}; font-size:1.5rem; transition: color 0.2s ease;">
                                         ${item.done?'check_circle':'radio_button_unchecked'}
                                     </span>
-                                    <span style="font-size:0.9rem;font-weight:${item.done?800:600};text-decoration:${item.done?'line-through':'none'};">${item.label}</span>
+                                    <span style="font-size:0.9rem;font-weight:${item.done?800:600};text-decoration:${item.done?'line-through':'none'}; transition: all 0.2s ease;">${item.label}</span>
                                 </div>
                             `).join('');
                         })()}
+                    </div>
+                    <div style="display:flex; gap:0.5rem;">
+                        <input type="text" id="new-checklist-input-${t.id}" class="input-well" style="flex:1; padding:0.6rem; border:1px solid var(--outline-variant);" placeholder="Add new step..." onkeydown="if(event.key==='Enter') addChecklistItem(${t.id})">
+                        <button class="btn-ghost" onclick="addChecklistItem(${t.id})" style="padding:0 1rem; border-radius:var(--radius-md); border:1px solid var(--outline-variant);"><span class="material-symbols-outlined">add</span></button>
                     </div>
                 </div>
 
@@ -2350,9 +2549,19 @@ function showSectionGuide() {
         'schedule': {
             title: 'Daily Operations',
             steps: [
-                { icon: 'event', text: 'Switch between College and Break modes.' },
+                { icon: 'event', text: 'Switch between 4 modes: College (Mon-Wed), Free (Thu-Fri), Saturday, Sunday.' },
                 { icon: 'add_box', text: 'Deploy new time blocks to your timeline.' },
-                { icon: 'edit', text: 'Edit or remove blocks to optimize your flow.' }
+                { icon: 'edit', text: 'Click any block to edit, reschedule, or remove it.' },
+                { icon: 'auto_stories', text: 'Categories: Learning, DevTailored, College, Shop, Personal, Free, Sleep.' }
+            ]
+        },
+        'planner': {
+            title: 'Weekly Planner',
+            steps: [
+                { icon: 'architecture', text: 'Set 3 Strategic Pillars — your top goals for the week.' },
+                { icon: 'priority_high', text: 'Define P1/P2/P3 Priorities — your must-do, should-do, and maintenance tasks.' },
+                { icon: 'check_circle', text: 'Track daily Habits — toggle each day to build streaks.' },
+                { icon: 'rate_review', text: 'End-of-week Review — log wins, failures, and one pivot for next week.' }
             ]
         },
         'task-hub': {
@@ -2468,6 +2677,11 @@ async function loadTaskHub(searchTerm = '') {
     // Filter by search term
     if (searchTerm) {
         tasks = tasks.filter(t => t.title.toLowerCase().includes(searchTerm.toLowerCase()) || t.project.toLowerCase().includes(searchTerm.toLowerCase()));
+    } else {
+        const activeFilterMode = window.taskHubMode || currentScheduleMode || 'any';
+        if (activeFilterMode !== 'all') {
+            tasks = tasks.filter(t => !t.day_type || t.day_type === 'any' || t.day_type === activeFilterMode);
+        }
     }
 
     container.innerHTML = `
@@ -2477,17 +2691,24 @@ async function loadTaskHub(searchTerm = '') {
                 <span class="label-overline">Universal Mission Control</span>
                 <h1 style="font-size:3rem;margin:0;">Task Hub</h1>
             </div>
-            <div class="view-header-actions">
-                <div class="input-well" style="width:300px;">
-                    <span class="material-symbols-outlined">search</span>
-                    <input type="text" class="input-recessed" placeholder="Search objectives..." oninput="loadTaskHub(this.value)" value="${searchTerm}">
+            <div class="view-header-actions" style="display:flex; flex-direction:column; align-items:flex-end; gap:0.5rem;">
+                <div style="display:flex; gap:0.5rem; align-items:center;">
+                    <div class="input-well" style="width:300px;">
+                        <span class="material-symbols-outlined">search</span>
+                        <input type="text" class="input-recessed" placeholder="Search objectives..." oninput="loadTaskHub(this.value)" value="${searchTerm}">
+                    </div>
+                    <button class="btn-ghost" onclick="showSectionGuide()">
+                        <span class="material-symbols-outlined">help_outline</span>
+                    </button>
+                    <button class="btn-primary" onclick="showAddTaskModal()">
+                        <span class="material-symbols-outlined">add</span> NEW TASK
+                    </button>
                 </div>
-                <button class="btn-ghost" onclick="showSectionGuide()">
-                    <span class="material-symbols-outlined">help_outline</span>
-                </button>
-                <button class="btn-primary" onclick="showAddTaskModal()">
-                    <span class="material-symbols-outlined">add</span> NEW TASK
-                </button>
+                <div style="display:flex; gap:0.5rem; background:var(--surface-container); padding:0.35rem; border-radius:var(--radius-md); overflow-x: auto; max-width: 500px;">
+                    <button class="btn-ghost ${(!window.taskHubMode && !currentScheduleMode) || (window.taskHubMode || currentScheduleMode) === 'all' ? 'btn-primary' : ''}" style="font-size:0.7rem; padding:0.4rem 0.8rem;" onclick="window.taskHubMode='all'; loadTaskHub()">All</button>
+                    <button class="btn-ghost ${(window.taskHubMode || currentScheduleMode) === 'any' ? 'btn-primary' : ''}" style="font-size:0.7rem; padding:0.4rem 0.8rem;" onclick="window.taskHubMode='any'; loadTaskHub()">Any Day</button>
+                    ${scheduleModes.map(m => `<button class="btn-ghost ${(window.taskHubMode || currentScheduleMode) === m.slug ? 'btn-primary' : ''}" style="font-size:0.7rem; padding:0.4rem 0.8rem;" onclick="window.taskHubMode='${m.slug}'; loadTaskHub()">${m.label}</button>`).join('')}
+                </div>
             </div>
         </div>
 
@@ -2498,6 +2719,7 @@ async function loadTaskHub(searchTerm = '') {
                         <th style="width:50px;"></th>
                         <th style="min-width:250px;">Task Description</th>
                         <th style="width:120px;">Project</th>
+                        <th style="width:80px;">🍅 Poms</th>
                         <th style="width:100px;">Priority</th>
                         <th style="width:120px;">Due Date</th>
                         <th style="width:100px;">Status</th>
@@ -2519,6 +2741,7 @@ async function loadTaskHub(searchTerm = '') {
                                 </div>
                             </td>
                             <td><span style="font-size:0.75rem;font-weight:800;color:var(--tertiary);">${t.project}</span></td>
+                            <td style="font-size:0.7rem; font-weight:700;">${t.poms_done || 0}/${t.poms_target || 1}</td>
                             <td>
                                 <span style="display:inline-block;padding:0.2rem 0.5rem;border-radius:99px;font-size:0.65rem;font-weight:800;background:var(--surface-container-highest);color:var(--primary);">
                                     P${t.priority}
@@ -2556,10 +2779,16 @@ async function deleteTask(id) {
 async function addNewTask() {
     const input = document.getElementById('new-task-input');
     const priority = document.getElementById('new-task-priority');
+    const dayType = document.getElementById('new-task-day');
     if (!input.value.trim()) return;
     await fetch('/api/tasks', {
         method: 'POST', headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ title: input.value.trim(), priority: parseInt(priority.value), project: 'General' })
+        body: JSON.stringify({ 
+            title: input.value.trim(), 
+            priority: parseInt(priority.value), 
+            project: 'General',
+            day_type: dayType ? dayType.value : 'any'
+        })
     });
     input.value = '';
     showToast('Objective deployed');
@@ -2567,7 +2796,18 @@ async function addNewTask() {
 }
 
 async function toggleTask(id, completed) {
-    await fetch(`/api/tasks/${id}`, { method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ completed }) });
+    const body = { completed };
+    // If manually marking done, ensure poms_done matches target for UI consistency
+    if (completed) {
+        try {
+            const r = await fetch(`/api/tasks/${id}`);
+            if (r.ok) {
+                const t = await r.json();
+                body.poms_done = t.poms_target || 1;
+            }
+        } catch(e) {}
+    }
+    await fetch(`/api/tasks/${id}`, { method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) });
     if (currentPage === 'tasks') loadTasks();
     if (currentPage === 'team-grid') loadTeamGrid();
     if (currentPage === 'task-hub') loadTaskHub();
@@ -2598,11 +2838,31 @@ function showAddBlockModal() {
                         <input class="input-well w-full" type="time" id="sb-end" required>
                     </div>
                 </div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;">
+                    <div>
+                        <label class="label-sm">Category</label>
+                        <select class="input-well w-full" id="sb-cat">
+                            ${Object.entries(SCHED_CAT).map(([k,v]) => `<option value="${k}">${v.label}</option>`).join('')}
+                        </select>
+                    </div>
+                    <div>
+                        <label class="label-sm">Day Type</label>
+                        <select class="input-well w-full" id="sb-day-type">
+                            <option value="college" ${currentScheduleMode==='college'?'selected':''}>📚 College (Mon-Wed)</option>
+                            <option value="free" ${currentScheduleMode==='free'?'selected':''}>💻 Free (Thu-Fri)</option>
+                            <option value="saturday" ${currentScheduleMode==='saturday'?'selected':''}>⚡ Saturday</option>
+                            <option value="sunday" ${currentScheduleMode==='sunday'?'selected':''}>🔋 Sunday</option>
+                            <option value="daily">📅 Every Day</option>
+                        </select>
+                    </div>
+                </div>
                 <div>
-                    <label class="label-sm">Category</label>
-                    <select class="input-well w-full" id="sb-cat">
-                        ${Object.entries(SCHED_CAT).map(([k,v]) => `<option value="${k}">${v.label}</option>`).join('')}
-                    </select>
+                    <label class="label-sm">Description</label>
+                    <textarea class="input-well w-full" id="sb-desc" rows="2" placeholder="Optional notes..."></textarea>
+                </div>
+                <div>
+                    <label class="label-sm">Target Pomodoros</label>
+                    <input class="input-well w-full" type="number" id="sb-poms" placeholder="Auto-calculated from duration">
                 </div>
                 <button type="submit" class="btn-primary" style="padding:1rem;">Deploy Block</button>
             </form>
@@ -2639,6 +2899,13 @@ function showAddTaskModal() {
                     <label class="label-sm">Project / Category</label>
                     <input class="input-well w-full" type="text" id="nt-project" placeholder="e.g. General, Dev, Admin" value="General">
                 </div>
+                <div>
+                    <label class="label-sm">Day Type Sync</label>
+                    <select class="input-well w-full" id="nt-day-type">
+                        <option value="any">📅 Any Day (Universal)</option>
+                        ${scheduleModes.map(m => `<option value="${m.slug}" ${(window.taskHubMode || currentScheduleMode) === m.slug ? 'selected' : ''}>${m.label}</option>`).join('')}
+                    </select>
+                </div>
                 <button type="submit" class="btn-primary" style="padding:1rem;">Deploy Objective</button>
             </form>
         </div>
@@ -2651,10 +2918,11 @@ async function handleAddTaskSubmit(e) {
     const title = document.getElementById('nt-title').value;
     const priority = document.getElementById('nt-priority').value;
     const project = document.getElementById('nt-project').value;
+    const dayType = document.getElementById('nt-day-type').value;
     
     await fetch('/api/tasks', {
         method: 'POST', headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ title, priority: parseInt(priority), project })
+        body: JSON.stringify({ title, priority: parseInt(priority), project, day_type: dayType })
     });
     
     showToast('Objective deployed');
@@ -3005,8 +3273,9 @@ async function loadPlanner() {
         c.innerHTML = `
         <div class="anim-slide px-2 pb-24">
             <div class="mb-8">
-                <span class="label-overline">Continuity Matrix</span>
-                <h1 class="text-3xl font-bold tracking-tight text-on-surface">Planner</h1>
+                <span class="label-overline">Weekly Strategy</span>
+                <h1 class="text-3xl font-bold tracking-tight text-on-surface">Weekly Planner</h1>
+                <p class="text-xs text-outline mt-1">Set goals, track habits, and review your week</p>
             </div>
 
             <!-- Date Selector -->
@@ -3089,8 +3358,9 @@ async function loadPlanner() {
     <div class="anim-slide">
         <div class="flex-between mb-8">
             <div>
-                <span class="label-overline mb-2" style="display:block;">Continuity Matrix</span>
-                <h1 style="font-size:3rem;">Executive Planner</h1>
+                <span class="label-overline mb-2" style="display:block;">Weekly Strategy</span>
+                <h1 style="font-size:3rem;">Weekly Planner</h1>
+                <p style="font-size:0.82rem;color:var(--outline);margin-top:0.25rem;">Set weekly goals • Track daily habits • Review & reflect</p>
             </div>
             <div style="display:flex;gap:0.5rem;align-items:center;">
                 <button class="btn-ghost" onclick="moveWeek(-1)">←</button>
@@ -3106,19 +3376,19 @@ async function loadPlanner() {
                 <div style="display:flex;flex-direction:column;gap:1.25rem;">
                     <div>
                         <label style="font-size:0.7rem;font-weight:700;color:var(--outline);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:0.3rem;display:block;">Pillar 1: Massive Action</label>
-                        <input class="input-recessed" style="width:100%;padding:0.75rem 1rem;border:1px solid var(--outline-variant);border-radius:var(--radius-sm);font-weight:600;" type="text" id="pl-goal-1" placeholder="Define mission..." value="${data.goals.g1||''}">
+                        <input class="input-recessed" style="width:100%;padding:0.75rem 1rem;border:1px solid var(--outline-variant);border-radius:var(--radius-sm);font-weight:600;" type="text" id="pl-goal-1" placeholder="Define mission..." value="${data.goals.g1||''}" oninput="debouncedSavePlanner()">
                     </div>
                     <div>
                         <label style="font-size:0.7rem;font-weight:700;color:var(--outline);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:0.3rem;display:block;">Pillar 2: Technical Depth</label>
-                        <input class="input-recessed" style="width:100%;padding:0.75rem 1rem;border:1px solid var(--outline-variant);border-radius:var(--radius-sm);font-weight:600;" type="text" id="pl-goal-2" placeholder="Skills to master..." value="${data.goals.g2||''}">
+                        <input class="input-recessed" style="width:100%;padding:0.75rem 1rem;border:1px solid var(--outline-variant);border-radius:var(--radius-sm);font-weight:600;" type="text" id="pl-goal-2" placeholder="Skills to master..." value="${data.goals.g2||''}" oninput="debouncedSavePlanner()">
                     </div>
                     <div>
                         <label style="font-size:0.7rem;font-weight:700;color:var(--outline);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:0.3rem;display:block;">Pillar 3: Market Presence</label>
-                        <input class="input-recessed" style="width:100%;padding:0.75rem 1rem;border:1px solid var(--outline-variant);border-radius:var(--radius-sm);font-weight:600;" type="text" id="pl-goal-3" placeholder="Visibility goals..." value="${data.goals.g3||''}">
+                        <input class="input-recessed" style="width:100%;padding:0.75rem 1rem;border:1px solid var(--outline-variant);border-radius:var(--radius-sm);font-weight:600;" type="text" id="pl-goal-3" placeholder="Visibility goals..." value="${data.goals.g3||''}" oninput="debouncedSavePlanner()">
                     </div>
                     <div style="margin-top:0.5rem;padding-top:1.5rem;border-top:1px solid var(--surface-container-highest);">
                         <label style="font-size:0.7rem;font-weight:700;color:var(--tertiary);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:0.3rem;display:block;">AI/ML core Research Milestone</label>
-                        <input class="input-recessed" style="width:100%;padding:0.75rem 1rem;border:1px solid var(--outline-variant);border-radius:var(--radius-sm);font-weight:600;" type="text" id="pl-ai-goal" placeholder="e.g. Master Transformers" value="${data.goals.ai||''}">
+                        <input class="input-recessed" style="width:100%;padding:0.75rem 1rem;border:1px solid var(--outline-variant);border-radius:var(--radius-sm);font-weight:600;" type="text" id="pl-ai-goal" placeholder="e.g. Master Transformers" value="${data.goals.ai||''}" oninput="debouncedSavePlanner()">
                     </div>
                 </div>
             </div>
@@ -3132,21 +3402,21 @@ async function loadPlanner() {
                             <span class="pill pill-red" style="font-size:0.6rem;padding:0.1rem 0.6rem;">P1</span>
                             <label style="font-size:0.7rem;font-weight:700;color:var(--outline);text-transform:uppercase;letter-spacing:0.05em;">Non-negotiable Mission</label>
                         </div>
-                        <input class="input-recessed" style="width:100%;padding:0.75rem 1rem;border:1px solid var(--outline-variant);border-radius:var(--radius-sm);font-weight:600;" type="text" id="pl-p1" placeholder="Must complete..." value="${data.priorities.p1||''}">
+                        <input class="input-recessed" style="width:100%;padding:0.75rem 1rem;border:1px solid var(--outline-variant);border-radius:var(--radius-sm);font-weight:600;" type="text" id="pl-p1" placeholder="Must complete..." value="${data.priorities.p1||''}" oninput="debouncedSavePlanner()">
                     </div>
                     <div>
                         <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:0.4rem;">
                             <span class="pill pill-green" style="font-size:0.6rem;padding:0.1rem 0.6rem;">P2</span>
                             <label style="font-size:0.7rem;font-weight:700;color:var(--outline);text-transform:uppercase;letter-spacing:0.05em;">Strategic Objective</label>
                         </div>
-                        <input class="input-recessed" style="width:100%;padding:0.75rem 1rem;border:1px solid var(--outline-variant);border-radius:var(--radius-sm);font-weight:600;" type="text" id="pl-p2" placeholder="Should complete..." value="${data.priorities.p2||''}">
+                        <input class="input-recessed" style="width:100%;padding:0.75rem 1rem;border:1px solid var(--outline-variant);border-radius:var(--radius-sm);font-weight:600;" type="text" id="pl-p2" placeholder="Should complete..." value="${data.priorities.p2||''}" oninput="debouncedSavePlanner()">
                     </div>
                     <div>
                         <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:0.4rem;">
                             <span class="pill" style="font-size:0.6rem;padding:0.1rem 0.6rem;background:var(--surface-container-highest);">P3</span>
                             <label style="font-size:0.7rem;font-weight:700;color:var(--outline);text-transform:uppercase;letter-spacing:0.05em;">Operational Task</label>
                         </div>
-                        <input class="input-recessed" style="width:100%;padding:0.75rem 1rem;border:1px solid var(--outline-variant);border-radius:var(--radius-sm);font-weight:600;" type="text" id="pl-p3" placeholder="Maintenance..." value="${data.priorities.p3||''}">
+                        <input class="input-recessed" style="width:100%;padding:0.75rem 1rem;border:1px solid var(--outline-variant);border-radius:var(--radius-sm);font-weight:600;" type="text" id="pl-p3" placeholder="Maintenance..." value="${data.priorities.p3||''}" oninput="debouncedSavePlanner()">
                     </div>
                 </div>
             </div>
@@ -3173,7 +3443,7 @@ async function loadPlanner() {
                 <h4 class="label-sm mb-6" style="font-size:0.85rem;font-weight:800;color:var(--primary);text-transform:uppercase;letter-spacing:0.1em;">Weekly Reflection</h4>
                 <div>
                     <label style="font-size:0.7rem;font-weight:700;color:var(--outline);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:0.4rem;display:block;">Data Synthesis & Notes</label>
-                    <textarea class="input-recessed" style="width:100%;padding:1rem;border:1px solid var(--outline-variant);border-radius:var(--radius-sm);font-weight:600;resize:vertical;" id="pl-reflection" rows="6" placeholder="Synthesis of this week's data points...">${data.reflection || ''}</textarea>
+                    <textarea class="input-recessed" style="width:100%;padding:1rem;border:1px solid var(--outline-variant);border-radius:var(--radius-sm);font-weight:600;resize:vertical;" id="pl-reflection" rows="6" placeholder="Synthesis of this week's data points..." oninput="debouncedSavePlanner()">${data.reflection || ''}</textarea>
                 </div>
             </div>
             <!-- Last Week Review -->
@@ -3182,18 +3452,20 @@ async function loadPlanner() {
                 <div style="display:flex;flex-direction:column;gap:1.25rem;">
                     <div>
                         <label style="font-size:0.7rem;font-weight:700;color:var(--outline);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:0.3rem;display:block;">Biggest Weekly Win</label>
-                        <input class="input-recessed" style="width:100%;padding:0.75rem 1rem;border:1px solid var(--outline-variant);border-radius:var(--radius-sm);font-weight:600;" type="text" id="pl-win" placeholder="e.g. Major deployment" value="${data.review.win||''}">
+                        <input class="input-recessed" style="width:100%;padding:0.75rem 1rem;border:1px solid var(--outline-variant);border-radius:var(--radius-sm);font-weight:600;" type="text" id="pl-win" placeholder="e.g. Major deployment" value="${data.review.win||''}" oninput="debouncedSavePlanner()">
                     </div>
                     <div>
                         <label style="font-size:0.7rem;font-weight:700;color:var(--outline);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:0.3rem;display:block;">Growth Opportunity (Failures)</label>
-                        <input class="input-recessed" style="width:100%;padding:0.75rem 1rem;border:1px solid var(--outline-variant);border-radius:var(--radius-sm);font-weight:600;" type="text" id="pl-fail" placeholder="What didn't work?" value="${data.review.fail||''}">
+                        <input class="input-recessed" style="width:100%;padding:0.75rem 1rem;border:1px solid var(--outline-variant);border-radius:var(--radius-sm);font-weight:600;" type="text" id="pl-fail" placeholder="What didn't work?" value="${data.review.fail||''}" oninput="debouncedSavePlanner()">
                     </div>
                     <div>
                         <label style="font-size:0.7rem;font-weight:700;color:var(--outline);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:0.3rem;display:block;">One Pivot for Next Week</label>
-                        <input class="input-recessed" style="width:100%;padding:0.75rem 1rem;border:1px solid var(--outline-variant);border-radius:var(--radius-sm);font-weight:600;" type="text" id="pl-change" placeholder="e.g. Earlier wake up" value="${data.review.change||''}">
+                        <input class="input-recessed" style="width:100%;padding:0.75rem 1rem;border:1px solid var(--outline-variant);border-radius:var(--radius-sm);font-weight:600;" type="text" id="pl-change" placeholder="e.g. Earlier wake up" value="${data.review.change||''}" oninput="debouncedSavePlanner()">
                     </div>
                     
-                    <button onclick="saveFullPlanner()" class="btn-primary" style="width:100%;padding:0.8rem;margin-top:0.5rem;">Sync Workspace</button>
+                    <div id="planner-save-status" style="text-align:center; font-size:0.75rem; color:var(--outline); margin-top:0.5rem; height: 1.2rem; display: flex; align-items: center; justify-content: center; opacity: 0.7;">
+                        <span class="material-symbols-outlined" style="font-size: 14px; margin-right: 4px;">cloud_done</span> All changes saved
+                    </div>
                 </div>
             </div>
         </div>
@@ -3239,6 +3511,15 @@ function renderHabitGrid() {
     });
 }
 
+function debouncedSavePlanner() {
+    const status = document.getElementById('planner-save-status');
+    if (status) {
+        status.innerHTML = '<span class="material-symbols-outlined" style="font-size: 14px; margin-right: 4px; animation: spin 1s linear infinite;">sync</span> Saving...';
+    }
+    clearTimeout(plannerSaveTimer);
+    plannerSaveTimer = setTimeout(() => saveFullPlanner(), 1000);
+}
+
 async function saveFullPlanner() {
     const weekKey = getMonday(currentWeekOffset);
     const data = {
@@ -3265,14 +3546,23 @@ async function saveFullPlanner() {
         method: 'POST', headers: {'Content-Type': 'application/json'},
         body: JSON.stringify(data)
     });
-    showToast('Workspace synced');
-    loadPlanner();
+    
+    const status = document.getElementById('planner-save-status');
+    if (status) {
+        status.innerHTML = '<span class="material-symbols-outlined" style="font-size: 14px; margin-right: 4px; color: var(--green);">cloud_done</span> Saved';
+        setTimeout(() => {
+            if (status.innerHTML.includes('Saved')) {
+                status.innerHTML = '<span class="material-symbols-outlined" style="font-size: 14px; margin-right: 4px;">cloud_done</span> All changes saved';
+            }
+        }, 3000);
+    }
 }
 
 async function toggleHabitMobile(habitId, dayIdx) {
     if (!habitState[habitId]) habitState[habitId] = Array(7).fill(false);
     habitState[habitId][dayIdx] = !habitState[habitId][dayIdx];
     await saveFullPlanner();
+    loadPlanner(); // Re-render to show checkmark
 }
 
 
@@ -3325,6 +3615,7 @@ function loadTodoistGuide() {
                         </div>
                     </div>
                 </div>
+                <div class="card-recessed" style="padding:2rem;background:var(--surface-container-low);">
                     <span class="label-sm" style="display:block;margin-bottom:1rem;">Strategic Value</span>
                     <p style="font-size:0.875rem;line-height:1.6;color:var(--on-surface-variant);">Todoist serves as the <span style="font-weight:800;color:#333;">external memory</span> of this system.</p>
                 </div>
@@ -3663,6 +3954,9 @@ async function loadTeamGrid(searchTerm = '') {
                     <button onclick="toggleTaskDetails(${t.id})" style="background:none;border:none;color:var(--outline);font-size:0.6rem;font-weight:800;cursor:pointer;text-align:left;padding:0;width:fit-content;opacity:0.6;letter-spacing:0.05em;">＋ MISSION LOG</button>
                 </div>
             </td>
+            <td style="width:80px; font-size:0.75rem; font-weight:700;">
+                ${t.poms_done || 0}/${t.poms_target || 1}
+            </td>
             <td style="width:150px;">
                 <input class="inline-edit" value="${t.project||'General'}" style="font-size:0.75rem;font-weight:700;color:var(--tertiary);" onblur="updateTaskInline(${t.id},'project',this.value)">
             </td>
@@ -3766,6 +4060,7 @@ async function loadTeamGrid(searchTerm = '') {
                     <tr>
                         <th style="width:60px;"></th>
                         <th style="min-width:250px;">Objective</th>
+                        <th style="width:80px;">🍅 Poms</th>
                         <th style="width:150px;">Project</th>
                         <th style="width:100px;">Priority</th>
                         <th style="width:160px;">Assignee</th>
@@ -4327,3 +4622,316 @@ function openModal(id) {
     const el = document.getElementById(`modal-${id}`);
     if (el) el.classList.remove('hidden');
 }
+
+// ── Schedule Mode Management ───────────────────────────
+window.showManageModesModal = function() {
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+    overlay.onclick = (e) => e.target === overlay && overlay.remove();
+    
+    const generateModeRows = () => {
+        return scheduleModes.map((m, i) => `
+            <div class="mode-row card-recessed mb-2" style="padding:1rem; display:grid; grid-template-columns:1fr 1fr; gap:0.5rem;" data-index="${i}">
+                <div>
+                    <label class="label-sm">Slug (ID) *</label>
+                    <input type="text" class="input-well w-full mode-slug" value="${m.slug}" placeholder="e.g. college" required>
+                </div>
+                <div>
+                    <label class="label-sm">Label *</label>
+                    <input type="text" class="input-well w-full mode-label" value="${m.label}" placeholder="e.g. College Day" required>
+                </div>
+                <div>
+                    <label class="label-sm">Icon (Google Font)</label>
+                    <input type="text" class="input-well w-full mode-icon" value="${m.icon}" placeholder="e.g. school">
+                </div>
+                <div>
+                    <label class="label-sm">Active Days (0=Sun, 6=Sat)</label>
+                    <input type="text" class="input-well w-full mode-days" value="${m.days_of_week ? m.days_of_week.join(',') : ''}" placeholder="e.g. 1,2,3">
+                </div>
+                <div style="grid-column: 1 / -1; display:flex; justify-content:flex-end;">
+                    <button type="button" class="btn-ghost text-red" onclick="this.closest('.mode-row').remove()" style="font-size:0.75rem; padding:0.25rem 0.5rem;">Delete</button>
+                </div>
+            </div>
+        `).join('');
+    };
+
+    overlay.innerHTML = `
+        <div class="modal-card anim-pop" style="max-width:600px; max-height:90vh; overflow-y:auto; display:flex; flex-direction:column;">
+            <div class="flex-between mb-4">
+                <h3 style="font-size:1.5rem;">Manage Schedule Modes</h3>
+                <button type="button" class="btn-icon" onclick="this.closest('.modal-overlay').remove()"><span class="material-symbols-outlined">close</span></button>
+            </div>
+            <p class="text-xs text-outline mb-4">Customize your day types (e.g. College, Remote, Rest). The system will auto-select the mode based on the "Active Days" (0 = Sunday, 1 = Monday, etc.).</p>
+            
+            <form onsubmit="handleSaveModes(event); this.closest('.modal-overlay').remove();" style="display:flex; flex-direction:column; gap:1rem;">
+                <div id="modes-list-container" style="display:flex; flex-direction:column; gap:0.5rem;">
+                    ${generateModeRows()}
+                </div>
+                <button type="button" class="btn-ghost mb-4" onclick="addModeRow()" style="border: 1px dashed var(--outline-variant);">
+                    <span class="material-symbols-outlined">add</span> Add Mode
+                </button>
+                <div style="display:flex;gap:1rem;margin-top:1rem;">
+                    <button type="button" class="btn-ghost flex-1" onclick="this.closest('.modal-overlay').remove()">Cancel</button>
+                    <button type="submit" class="btn-primary flex-1">Save Configurations</button>
+                </div>
+            </form>
+        </div>
+    `;
+    document.body.appendChild(overlay);
+};
+
+window.addModeRow = function() {
+    const container = document.getElementById('modes-list-container');
+    const row = document.createElement('div');
+    row.className = 'mode-row card-recessed mb-2 anim-slide';
+    row.style.cssText = 'padding:1rem; display:grid; grid-template-columns:1fr 1fr; gap:0.5rem;';
+    row.innerHTML = `
+        <div>
+            <label class="label-sm">Slug (ID) *</label>
+            <input type="text" class="input-well w-full mode-slug" value="new_mode" required>
+        </div>
+        <div>
+            <label class="label-sm">Label *</label>
+            <input type="text" class="input-well w-full mode-label" value="New Mode" required>
+        </div>
+        <div>
+            <label class="label-sm">Icon (Google Font)</label>
+            <input type="text" class="input-well w-full mode-icon" value="event">
+        </div>
+        <div>
+            <label class="label-sm">Active Days (0=Sun, 6=Sat)</label>
+            <input type="text" class="input-well w-full mode-days" value="" placeholder="e.g. 1,2,3">
+        </div>
+        <div style="grid-column: 1 / -1; display:flex; justify-content:flex-end;">
+            <button type="button" class="btn-ghost text-red" onclick="this.closest('.mode-row').remove()" style="font-size:0.75rem; padding:0.25rem 0.5rem;">Delete</button>
+        </div>
+    `;
+    container.appendChild(row);
+};
+
+window.handleSaveModes = async function(e) {
+    e.preventDefault();
+    const rows = document.querySelectorAll('.mode-row');
+    const modes = Array.from(rows).map(row => {
+        const daysRaw = row.querySelector('.mode-days').value;
+        const days = daysRaw ? daysRaw.split(',').map(d => parseInt(d.trim())).filter(n => !isNaN(n)) : [];
+        return {
+            slug: row.querySelector('.mode-slug').value.trim(),
+            label: row.querySelector('.mode-label').value.trim(),
+            icon: row.querySelector('.mode-icon').value.trim(),
+            days_of_week: days
+        };
+    });
+
+    try {
+        const res = await fetch('/api/schedule/modes', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ modes })
+        });
+        if (res.ok) {
+            scheduleModes = await res.json();
+            showToast('Schedule Modes Configured');
+            if (!scheduleModes.find(m => m.slug === currentScheduleMode)) {
+                initializeCurrentScheduleMode();
+            }
+            if (currentPage === 'schedule') {
+                renderPage('schedule');
+            } else {
+                renderScheduleHeader();
+            }
+        }
+    } catch (e) {
+        showToast('Error saving modes');
+    }
+};
+
+window.addNewTask = async function() {
+    const titleInput = document.getElementById('new-task-input');
+    const dayInput = document.getElementById('new-task-day');
+    const priorityInput = document.getElementById('new-task-priority');
+    
+    if (!titleInput || !titleInput.value.trim()) return;
+
+    const payload = {
+        title: titleInput.value.trim(),
+        priority: priorityInput ? parseInt(priorityInput.value) : 4,
+        day_type: dayInput ? dayInput.value : 'any'
+    };
+
+    try {
+        const res = await fetch('/api/tasks', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        
+        if (res.ok) {
+            titleInput.value = '';
+            showToast('Objective Added');
+            if (typeof loadTasks === 'function') loadTasks();
+        } else {
+            showToast('Failed to add objective');
+        }
+    } catch (e) {
+        showToast('Error adding objective');
+    }
+};
+
+window.showAddTaskModal = function() {
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+    
+    const activeFilterMode = window.taskHubMode || (typeof currentScheduleMode !== 'undefined' ? currentScheduleMode : 'any');
+    const modesHtml = (typeof scheduleModes !== 'undefined' && scheduleModes) 
+        ? scheduleModes.map(m => `<option value="${m.slug}" ${activeFilterMode===m.slug?'selected':''}>${m.label}</option>`).join('')
+        : '';
+    
+    overlay.innerHTML = `
+        <div class="modal-card anim-pop" style="max-width:500px; width: 90%;">
+            <div style="display:flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+                <h3 style="margin: 0; font-size: 1.5rem;">Deploy Objective</h3>
+                <button class="btn-ghost" style="padding: 0; width: 32px; height: 32px;" onclick="this.closest('.modal-overlay').remove()">
+                    <span class="material-symbols-outlined">close</span>
+                </button>
+            </div>
+            
+            <div style="display: flex; flex-direction: column; gap: 1rem;">
+                <div>
+                    <label class="label-sm mb-2" style="display:block;">Objective Title</label>
+                    <input type="text" id="modal-task-title" class="input-well" style="width: 100%; padding: 0.8rem;" placeholder="E.g., Complete Phase 1 documentation" onkeydown="if(event.key==='Enter') submitModalTask(this)">
+                </div>
+                
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                    <div>
+                        <label class="label-sm mb-2" style="display:block;">Day Type</label>
+                        <select id="modal-task-day" class="input-well" style="width: 100%; padding: 0.8rem;">
+                            <option value="any">Any Day</option>
+                            ${modesHtml}
+                        </select>
+                    </div>
+                    <div>
+                        <label class="label-sm mb-2" style="display:block;">Priority</label>
+                        <select id="modal-task-priority" class="input-well" style="width: 100%; padding: 0.8rem;">
+                            <option value="1">P1 - Critical</option>
+                            <option value="2">P2 - Strategic</option>
+                            <option value="3">P3 - Operational</option>
+                            <option value="4" selected>P4 - Backlog</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div>
+                    <label class="label-sm mb-2" style="display:block;">Target Pomodoros (25m sessions)</label>
+                    <div class="flex items-center gap-4">
+                        <input type="range" id="modal-task-poms" min="1" max="10" value="1" class="flex-1" oninput="this.nextElementSibling.textContent = this.value">
+                        <span class="text-lg font-bold" style="min-width: 2rem; text-align: center;">1</span>
+                    </div>
+                </div>
+                
+                <button class="btn-primary" style="margin-top: 1rem; width: 100%; padding: 1rem;" onclick="submitModalTask(this)">
+                    INITIALIZE PROTOCOL
+                </button>
+            </div>
+        </div>
+    `;
+    
+    document.body.appendChild(overlay);
+    setTimeout(() => document.getElementById('modal-task-title')?.focus(), 100);
+};
+
+window.submitModalTask = async function(btn) {
+    const overlay = btn.closest('.modal-overlay');
+    const titleInput = overlay.querySelector('#modal-task-title');
+    const dayInput = overlay.querySelector('#modal-task-day');
+    const priorityInput = overlay.querySelector('#modal-task-priority');
+    const pomsInput = overlay.querySelector('#modal-task-poms');
+    
+    if (!titleInput || !titleInput.value.trim()) return;
+
+    const payload = {
+        title: titleInput.value.trim(),
+        priority: priorityInput ? parseInt(priorityInput.value) : 4,
+        day_type: dayInput ? dayInput.value : 'any',
+        poms_target: pomsInput ? parseInt(pomsInput.value) : 1
+    };
+
+    try {
+        const res = await fetch('/api/tasks', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        
+        if (res.ok) {
+            overlay.remove();
+            showToast('Objective Added');
+            if (typeof loadTasks === 'function') loadTasks();
+        } else {
+            showToast('Failed to add objective');
+        }
+    } catch (e) {
+        showToast('Error adding objective');
+    }
+};
+
+window.startFocusSession = function(id, title) {
+    const overlay = document.querySelector('.modal-overlay');
+    if (overlay) overlay.remove();
+    
+    if (typeof linkTaskToPom === 'function') {
+        linkTaskToPom(id, title);
+    } else {
+        window.pomTaskInput = title;
+    }
+    
+    if (typeof navigate === 'function') {
+        navigate('pomodoro');
+    }
+};
+
+window.addChecklistItem = async function(taskId) {
+    const input = document.getElementById(`new-checklist-input-${taskId}`);
+    if (!input) return;
+    const label = input.value.trim();
+    if (!label) return;
+
+    const r = await fetch(`/api/tasks/${taskId}`);
+    const task = await r.json();
+    let checklist = [];
+    try { checklist = task.checklist ? JSON.parse(task.checklist) : []; } catch(e) {}
+    
+    checklist.push({ label, done: false });
+    
+    await fetch(`/api/tasks/${taskId}`, {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ checklist: JSON.stringify(checklist) })
+    });
+    
+    const overlay = document.querySelector('.modal-overlay');
+    if (overlay) overlay.remove();
+    showTaskDetailModal(taskId);
+    
+    if (typeof loadTasks === 'function' && currentPage === 'tasks') loadTasks();
+    if (typeof loadTaskHub === 'function' && currentPage === 'task-hub') loadTaskHub();
+};
+
+// Instantly update timer visually when returning to the tab
+document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && typeof pomIsRunning !== 'undefined' && pomIsRunning) {
+        if (typeof updatePomDisplay === 'function') {
+            updatePomDisplay();
+            // Also check if timer finished while away
+            if (pomTimeLeft <= 0 && typeof completePom === 'function') {
+                if (typeof pomTimer !== 'undefined' && pomTimer) {
+                    clearInterval(pomTimer);
+                    pomTimer = null;
+                }
+                completePom();
+            } else if (typeof ensurePomTimerRunning === 'function') {
+                ensurePomTimerRunning();
+            }
+        }
+    }
+});

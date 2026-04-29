@@ -15,7 +15,7 @@ class ScheduleBlock(db.Model):
     color = db.Column(db.String(20), default="blue")
     description = db.Column(db.Text, default="")
     icon = db.Column(db.String(10), default="📌")
-    day_type = db.Column(db.String(10), default="daily")  # daily / weekday / weekend
+    day_type = db.Column(db.String(20), default="daily")  # college / free / saturday / sunday / daily
     sort_order = db.Column(db.Integer, default=0)
 
     def to_dict(self):

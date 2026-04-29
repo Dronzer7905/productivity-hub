@@ -14,13 +14,14 @@ def dashboard_stats():
     from models.tracker import DailyLog
     from models.task import Task
 
-    today = date.today().isoformat()
+    from datetime import datetime, date, time
+    today_start = datetime.combine(date.today(), time.min)
 
     # Today's pomodoros
     today_poms = PomodoroSession.query.filter_by(
         user_id=current_user.id, mode="work"
     ).filter(
-        PomodoroSession.completed_at >= today
+        PomodoroSession.completed_at >= today_start
     ).count()
 
     # Streak calculation (days with at least 1 pomodoro)
@@ -49,7 +50,7 @@ def dashboard_stats():
 
     # P1 tasks today
     p1_today = Task.query.filter_by(
-        user_id=current_user.id, completed=False, priority=1, due_date=today
+        user_id=current_user.id, completed=False, priority=1, due_date=date.today().isoformat()
     ).count()
 
     # ── Daily Activation Protocol ─────────────────────────

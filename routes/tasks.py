@@ -101,6 +101,9 @@ def add_task():
         description=data.get("description", ""),
         assignee=data.get("assignee", ""),
         checklist=data.get("checklist", ""),
+        day_type=data.get("day_type", "any"),
+        poms_target=int(data.get("poms_target", 1)),
+        poms_done=int(data.get("poms_done", 0)),
     )
     db.session.add(task)
     db.session.flush()
@@ -109,6 +112,24 @@ def add_task():
     )
     db.session.commit()
     return jsonify(task.to_dict()), 201
+
+
+@tasks_bp.route("/api/tasks/<int:task_id>", methods=["GET"])
+@login_required
+def get_task(task_id):
+    from models.user import TeamMember
+    user_team_ids = [m.team_id for m in current_user.team_memberships]
+    
+    # 2. Get IDs of users who have shared their 'team-grid' or 'all' with this user
+    from models.invite import Invite
+    shares = Invite.query.filter_by(recipient_email=current_user.email, status='accepted').all()
+    shared_user_ids = [s.sender_id for s in shares if s.section in ['team-grid', 'all']]
+
+    task = Task.query.filter(
+        (Task.id == task_id) & 
+        ((Task.user_id == current_user.id) | (Task.team_id.in_(user_team_ids)) | (Task.user_id.in_(shared_user_ids)))
+    ).first_or_404()
+    return jsonify(task.to_dict())
 
 
 @tasks_bp.route("/api/tasks/<int:task_id>", methods=["PUT"])
@@ -125,7 +146,7 @@ def update_task(task_id):
     previous_assignee = task.assignee
 
     for key in ["title", "project", "label", "priority", "due_date",
-                "due_time", "recurring", "description", "assignee", "checklist", "is_private"]:
+                "due_time", "recurring", "description", "assignee", "checklist", "day_type", "is_private", "poms_target", "poms_done"]:
         if key in data:
             setattr(task, key, data[key])
 

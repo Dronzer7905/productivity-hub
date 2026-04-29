@@ -3,6 +3,7 @@ from flask_login import login_required, current_user
 
 from models import db
 from models.schedule import ScheduleBlock
+from models.schedule_mode import ScheduleMode
 
 schedule_bp = Blueprint("schedule", __name__)
 
@@ -69,3 +70,53 @@ def delete_block(block_id):
     db.session.delete(block)
     db.session.commit()
     return jsonify({"message": "Deleted"})
+
+
+@schedule_bp.route("/api/schedule/modes", methods=["GET"])
+@login_required
+def get_modes():
+    modes = ScheduleMode.query.filter_by(user_id=current_user.id).order_by(ScheduleMode.sort_order).all()
+    if not modes:
+        # Provide default modes if none exist
+        default_modes = [
+            {"slug": "college", "label": "College", "icon": "school", "days_of_week": "1,2,3", "sort_order": 0},
+            {"slug": "free", "label": "Free", "icon": "laptop_mac", "days_of_week": "4,5", "sort_order": 1},
+            {"slug": "saturday", "label": "Saturday", "icon": "bolt", "days_of_week": "6", "sort_order": 2},
+            {"slug": "sunday", "label": "Sunday", "icon": "battery_charging_full", "days_of_week": "0", "sort_order": 3}
+        ]
+        for dm in default_modes:
+            mode = ScheduleMode(user_id=current_user.id, **dm)
+            db.session.add(mode)
+        db.session.commit()
+        modes = ScheduleMode.query.filter_by(user_id=current_user.id).order_by(ScheduleMode.sort_order).all()
+    
+    return jsonify([m.to_dict() for m in modes])
+
+
+@schedule_bp.route("/api/schedule/modes", methods=["POST"])
+@login_required
+def save_modes():
+    data = request.get_json()
+    modes_data = data.get("modes", [])
+    
+    # Delete existing modes
+    ScheduleMode.query.filter_by(user_id=current_user.id).delete()
+    
+    # Add new modes
+    for index, mode_dict in enumerate(modes_data):
+        days = mode_dict.get("days_of_week", [])
+        days_str = ",".join(str(d) for d in days)
+        
+        mode = ScheduleMode(
+            user_id=current_user.id,
+            slug=mode_dict.get("slug", f"mode_{index}"),
+            label=mode_dict.get("label", f"Mode {index+1}"),
+            icon=mode_dict.get("icon", "event"),
+            days_of_week=days_str,
+            sort_order=index
+        )
+        db.session.add(mode)
+    
+    db.session.commit()
+    modes = ScheduleMode.query.filter_by(user_id=current_user.id).order_by(ScheduleMode.sort_order).all()
+    return jsonify([m.to_dict() for m in modes])

@@ -12,11 +12,11 @@ pomodoro_bp = Blueprint("pomodoro", __name__)
 @login_required
 def get_sessions():
     """Get today's pomodoro sessions."""
-    today = date.today().isoformat()
+    today_start = datetime.combine(date.today(), time.min)
     sessions = PomodoroSession.query.filter_by(
         user_id=current_user.id
     ).filter(
-        PomodoroSession.completed_at >= today
+        PomodoroSession.completed_at >= today_start
     ).order_by(PomodoroSession.completed_at.desc()).all()
     return jsonify([s.to_dict() for s in sessions])
 
@@ -48,11 +48,12 @@ def add_session():
 @login_required
 def get_stats():
     """Get pomodoro stats: today count, total, streak."""
-    today = date.today().isoformat()
+    from datetime import time
+    today_start = datetime.combine(date.today(), time.min)
 
     today_count = PomodoroSession.query.filter_by(
         user_id=current_user.id, mode="work"
-    ).filter(PomodoroSession.completed_at >= today).count()
+    ).filter(PomodoroSession.completed_at >= today_start).count()
 
     total_count = PomodoroSession.query.filter_by(
         user_id=current_user.id, mode="work"
