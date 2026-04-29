@@ -80,15 +80,18 @@ def create_app():
         
         # Auto-migrate tasks table to add day_type if missing
         try:
-            import sqlite3
-            db_path = os.path.join(app.instance_path, 'database.db')
-            print("Attempting to migrate DB at:", db_path)
-            conn = sqlite3.connect(db_path)
-            conn.execute("ALTER TABLE tasks ADD COLUMN day_type VARCHAR(50) DEFAULT 'any'")
-            conn.commit()
-            conn.close()
-            print("Migration successful: added day_type to tasks.")
+            from sqlalchemy import text
+            # Check if day_type column exists
+            result = db.session.execute(text("PRAGMA table_info(tasks)"))
+            columns = [row[1] for row in result.fetchall()]
+            
+            if columns and "day_type" not in columns:
+                print("Migration: Adding 'day_type' column to 'tasks' table...")
+                db.session.execute(text("ALTER TABLE tasks ADD COLUMN day_type VARCHAR(50) DEFAULT 'any'"))
+                db.session.commit()
+                print("Migration successful: added day_type to tasks.")
         except Exception as e:
+            db.session.rollback()
             print("Migration skipped or failed:", e)
 
     return app

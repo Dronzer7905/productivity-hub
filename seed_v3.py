@@ -14,6 +14,7 @@ from models.tracker import DailyLog
 def seed_db():
     app = create_app()
     with app.app_context():
+        print(f"Using database: {app.config['SQLALCHEMY_DATABASE_URI']}")
         # Get or create primary user 'ansh'
         user = User.query.filter_by(username="ansh").first()
         if not user:
