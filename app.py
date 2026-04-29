@@ -78,18 +78,30 @@ def create_app():
     with app.app_context():
         db.create_all()
         
-        # Auto-migrate tasks table to add day_type if missing
+        # Auto-migrate tasks table to add missing columns
         try:
             from sqlalchemy import text
-            # Check if day_type column exists
             result = db.session.execute(text("PRAGMA table_info(tasks)"))
             columns = [row[1] for row in result.fetchall()]
             
-            if columns and "day_type" not in columns:
-                print("Migration: Adding 'day_type' column to 'tasks' table...")
-                db.session.execute(text("ALTER TABLE tasks ADD COLUMN day_type VARCHAR(50) DEFAULT 'any'"))
-                db.session.commit()
-                print("Migration successful: added day_type to tasks.")
+            if columns:
+                any_change = False
+                migrations = [
+                    ("day_type", "VARCHAR(50) DEFAULT 'any'"),
+                    ("is_private", "BOOLEAN DEFAULT 1"),
+                    ("poms_target", "INTEGER DEFAULT 1"),
+                    ("poms_done", "INTEGER DEFAULT 0")
+                ]
+                
+                for col_name, col_type in migrations:
+                    if col_name not in columns:
+                        print(f"Migration: Adding '{col_name}' column to 'tasks' table...")
+                        db.session.execute(text(f"ALTER TABLE tasks ADD COLUMN {col_name} {col_type}"))
+                        any_change = True
+                
+                if any_change:
+                    db.session.commit()
+                    print("Migration successful: Updated tasks table schema.")
         except Exception as e:
             db.session.rollback()
             print("Migration skipped or failed:", e)

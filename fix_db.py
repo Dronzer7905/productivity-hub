@@ -24,17 +24,26 @@ for db_path in db_locations:
             conn.close()
             continue
 
-        # Check if the column already exists
-        cursor.execute("PRAGMA table_info(tasks)")
-        columns = [col[1] for col in cursor.fetchall()]
+        # List of columns to check/add
+        migrations = [
+            ("day_type", "VARCHAR(50) DEFAULT 'any'"),
+            ("is_private", "BOOLEAN DEFAULT 1"),
+            ("poms_target", "INTEGER DEFAULT 1"),
+            ("poms_done", "INTEGER DEFAULT 0")
+        ]
         
-        if "day_type" not in columns:
-            print(f"Column 'day_type' not found in {db_path}. Adding it now...")
-            conn.execute("ALTER TABLE tasks ADD COLUMN day_type VARCHAR(50) DEFAULT 'any'")
-            conn.commit()
-            print("Successfully added 'day_type' column!")
-        else:
-            print(f"Column 'day_type' already exists in {db_path}.")
+        # Check if the columns already exist
+        cursor.execute("PRAGMA table_info(tasks)")
+        existing_columns = [col[1] for col in cursor.fetchall()]
+        
+        for col_name, col_type in migrations:
+            if col_name not in existing_columns:
+                print(f"Column '{col_name}' not found in {db_path}. Adding it now...")
+                conn.execute(f"ALTER TABLE tasks ADD COLUMN {col_name} {col_type}")
+                conn.commit()
+                print(f"Successfully added '{col_name}' column!")
+            else:
+                print(f"Column '{col_name}' already exists in {db_path}.")
             
         conn.close()
     except Exception as e:
