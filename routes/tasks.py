@@ -77,6 +77,11 @@ def get_tasks():
         elif show == "completed":
             q = q.filter_by(completed=True)
             
+    # Apply day_type filtering if requested
+    day_type = request.args.get("day_type")
+    if day_type and day_type != "all":
+        q = q.filter((Task.day_type == day_type) | (Task.day_type == "any"))
+
     tasks = q.order_by(Task.priority, Task.due_date, Task.created_at.desc()).all()
     return jsonify([t.to_dict() for t in tasks])
 

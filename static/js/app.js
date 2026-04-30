@@ -947,7 +947,7 @@ async function loadDashboard() {
     let stats = { today_pomodoros: 0, week_hours: 0, pending_tasks: 0, completed_tasks: 0 };
     let tasks = [];
     try { const r = await fetch('/api/dashboard/stats'); stats = await r.json(); } catch(e) {}
-    try { const r = await fetch('/api/tasks?show=active'); tasks = await r.json(); } catch(e) {}
+    try { const r = await fetch(`/api/tasks?show=active&day_type=${currentScheduleMode || 'all'}`); tasks = await r.json(); } catch(e) {}
 
     const pendingTasks = tasks.filter(t => !t.completed);
     const completedTasks = tasks.filter(t => t.completed);
@@ -1946,7 +1946,7 @@ async function loadPomodoro() {
 let activeTasksCache = [];
 async function showTaskPicker() {
     try {
-        const r = await fetch('/api/tasks?show=active');
+        const r = await fetch(`/api/tasks?show=active&day_type=${currentScheduleMode || 'all'}`);
         activeTasksCache = await r.json();
     } catch(e) {}
     
@@ -1961,6 +1961,7 @@ async function showTaskPicker() {
     const getPickerHTML = (filter = '') => {
         const query = filter.toLowerCase();
         const todayBlocks = blocksCache.filter(b => 
+            (b.day_type === currentScheduleMode || b.day_type === 'daily') &&
             ['ai','dt','night','bonus','college','personal'].includes(b.category) &&
             (query === '' || b.title.toLowerCase().includes(query))
         );
@@ -2291,19 +2292,18 @@ function resetPom() {
 // TASKS — Priority Mission Matrix
 // ═══════════════════════════════════════════════════════
 async function loadTasks() {
+    const activeFilterMode = window.taskHubMode || currentScheduleMode || 'any';
     let tasks = [];
-    try { const r = await fetch('/api/tasks?show=active'); tasks = await r.json(); } catch(e) {}
+    try { 
+        const r = await fetch(`/api/tasks?show=active&day_type=${activeFilterMode}`); 
+        tasks = await r.json(); 
+    } catch(e) {}
+    
     const tasksQuickLinks = renderQuickAccessLinks([
         { view: 'team-grid', icon: 'table_chart', label: 'Team Radar' },
         { view: 'schedule', icon: 'calendar_today', label: 'Schedule' },
         { view: 'pomodoro', icon: 'timer', label: 'Pomodoro' }
     ]);
-    
-    // Apply day mode filter
-    const activeFilterMode = window.taskHubMode || currentScheduleMode || 'any';
-    if (activeFilterMode !== 'all') {
-        tasks = tasks.filter(t => !t.day_type || t.day_type === 'any' || t.day_type === activeFilterMode);
-    }
 
     const c = document.getElementById('view-tasks');
     c.innerHTML = `
@@ -2668,20 +2668,16 @@ async function loadTaskHub(searchTerm = '') {
     const container = document.getElementById('view-task-hub');
     if (!container) return;
     
+    const activeFilterMode = window.taskHubMode || currentScheduleMode || 'any';
     let tasks = [];
     try { 
-        const r = await fetch('/api/tasks?show=hub'); 
+        const url = searchTerm ? `/api/tasks?show=hub` : `/api/tasks?show=hub&day_type=${activeFilterMode}`;
+        const r = await fetch(url); 
         tasks = await r.json(); 
     } catch(e) {}
 
-    // Filter by search term
     if (searchTerm) {
         tasks = tasks.filter(t => t.title.toLowerCase().includes(searchTerm.toLowerCase()) || t.project.toLowerCase().includes(searchTerm.toLowerCase()));
-    } else {
-        const activeFilterMode = window.taskHubMode || currentScheduleMode || 'any';
-        if (activeFilterMode !== 'all') {
-            tasks = tasks.filter(t => !t.day_type || t.day_type === 'any' || t.day_type === activeFilterMode);
-        }
     }
 
     container.innerHTML = `
@@ -3902,7 +3898,7 @@ let currentTeamSearch = '';
 async function loadTeamGrid(searchTerm = '') {
     currentTeamSearch = searchTerm;
     let tasks = [];
-    try { const r = await fetch('/api/tasks?show=all'); tasks = await r.json(); } catch(e) {}
+    try { const r = await fetch(`/api/tasks?show=all&day_type=${currentScheduleMode || 'all'}`); tasks = await r.json(); } catch(e) {}
 
     const c = document.getElementById('view-team-grid');
     if (!c) return;
