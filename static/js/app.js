@@ -288,7 +288,7 @@ async function checkScheduleNotifications() {
                 tag: `block-${block.id}-${todayKey}`,
                 vibrate: [280, 180, 280, 180, 420]
             });
-            showToast(`${block.title} is starting now`);
+            // Removed duplicate showToast here for cleaner mobile experience
             rememberBlockNotification(blockKey);
         }
     }
@@ -384,6 +384,7 @@ async function startNotificationPolling() {
     }, 30000);
     scheduleWatcher = setInterval(() => {
         checkScheduleNotifications();
+        if (currentPage === 'dashboard') updateDashActiveBlock();
     }, 15000);
 }
 
@@ -1191,9 +1192,6 @@ async function loadDashboard() {
             dashTimer = null;
         }
     }, 30000);
-
-    // Also run block update more frequently
-    setInterval(updateDashActiveBlock, 5000);
 }
 
 async function syncDashboardPillars() {
@@ -1211,7 +1209,7 @@ async function syncDashboardPillars() {
 }
 
 async function updateDashActiveBlock() {
-    if (currentPage !== 'dashboard') { clearInterval(dashTimer); return; }
+    if (currentPage !== 'dashboard') return;
     if (!blocksCache.length) await fetchBlocks();
     const now = new Date();
     const curTime = now.getHours() * 60 + now.getMinutes();
@@ -1962,7 +1960,7 @@ async function showTaskPicker() {
         const query = filter.toLowerCase();
         const todayBlocks = blocksCache.filter(b => 
             (b.day_type === currentScheduleMode || b.day_type === 'daily') &&
-            ['ai','dt','night','bonus','college','personal'].includes(b.category) &&
+            ['ai','dt','night','bonus','college','personal','learning','shop','free'].includes(b.category) &&
             (query === '' || b.title.toLowerCase().includes(query))
         );
         

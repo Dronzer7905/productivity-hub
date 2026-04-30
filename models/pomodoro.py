@@ -12,7 +12,7 @@ class PomodoroSession(db.Model):
     mode = db.Column(db.String(10), default="work")  # work / short / long
     duration = db.Column(db.Integer, default=25)  # minutes
     completed_at = db.Column(
-        db.DateTime, default=lambda: datetime.now(timezone.utc)
+        db.DateTime, default=datetime.now
     )
 
     def to_dict(self):

@@ -12,6 +12,7 @@ pomodoro_bp = Blueprint("pomodoro", __name__)
 @login_required
 def get_sessions():
     """Get today's pomodoro sessions."""
+    from datetime import time
     today_start = datetime.combine(date.today(), time.min)
     sessions = PomodoroSession.query.filter_by(
         user_id=current_user.id
@@ -33,14 +34,42 @@ def add_session():
         task_name=task_name,
         mode=mode,
         duration=data.get("duration", 25),
-        completed_at=datetime.now(timezone.utc),
+        completed_at=datetime.now(),
     )
     db.session.add(session_entry)
     
-    # Instead of auto-completing, we only log the session against the task name.
-    # The user must manually mark the task finished when all sprints are complete.
+    # Sync with DailyLog for real-time tracking
+    if mode == "work":
+        from models.tracker import DailyLog
+        from datetime import time
+        today_date = date.today()
+        today_str = today_date.isoformat()
+        today_start = datetime.combine(today_date, time.min)
+        
+        # Recalculate today's poms to be safe
+        today_poms = PomodoroSession.query.filter_by(
+            user_id=current_user.id, mode="work"
+        ).filter(PomodoroSession.completed_at >= today_start).count() + 1 # +1 for the one we just added but haven't committed yet?
+        
+        # Actually, let's just commit first
+        db.session.commit()
+        
+        # Now update log
+        today_poms = PomodoroSession.query.filter_by(
+            user_id=current_user.id, mode="work"
+        ).filter(PomodoroSession.completed_at >= today_start).count()
+        
+        log = DailyLog.query.filter_by(user_id=current_user.id, date=today_str).first()
+        if not log:
+            log = DailyLog(user_id=current_user.id, date=today_str, dt_hours=0, ai_hours=0, pomodoros=today_poms, mood=0)
+            db.session.add(log)
+        else:
+            log.pomodoros = today_poms
+        
+        db.session.commit()
+    else:
+        db.session.commit()
             
-    db.session.commit()
     return jsonify(session_entry.to_dict()), 201
 
 
