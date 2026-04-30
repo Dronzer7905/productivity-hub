@@ -2211,14 +2211,26 @@ async function completePom() {
         }
     );
     showToast(pomMode === 'work' ? 'Sprint Complete!' : 'Break Over!');
-    await fetch('/api/pomodoro/sessions', {
-        method: 'POST', headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ 
-            mode: pomMode, 
-            duration: pomMode === 'work' ? 25 : (pomMode === 'short' ? 5 : 15),
-            task_name: pomTaskInput || (pomMode === 'work' ? 'Deep Work Session' : 'Executive Break')
-        })
-    });
+    // Log session to server
+    try {
+        const res = await fetch('/api/pomodoro/sessions', {
+            method: 'POST', 
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ 
+                mode: pomMode, 
+                duration: pomMode === 'work' ? 25 : (pomMode === 'short' ? 5 : 15),
+                task_name: pomTaskInput || (pomMode === 'work' ? 'Deep Work Session' : 'Executive Break')
+            })
+        });
+        
+        if (!res.ok) {
+            console.error("Failed to log session:", await res.text());
+            showToast("Failed to sync session to cloud");
+        }
+    } catch (err) {
+        console.error("Network error logging session:", err);
+        showToast("Connection error — session saved locally only");
+    }
 
     // AUTO-COMPLETE LINKED TASK
     if (pomMode === 'work' && pomTaskId) {
@@ -2252,6 +2264,7 @@ async function completePom() {
         }
     }
     
+    // Refresh local session state
     await fetchPomSessions();
 
     // Auto-cycle logic
@@ -2267,6 +2280,7 @@ async function completePom() {
         resetPom();
     }
     
+    // Global UI refresh
     if (currentPage === 'pomodoro') loadPomodoro();
     if (currentPage === 'dashboard') loadDashboard();
     if (currentPage === 'tasks') loadTasks();

@@ -46,15 +46,10 @@ def add_session():
         today_str = today_date.isoformat()
         today_start = datetime.combine(today_date, time.min)
         
-        # Recalculate today's poms to be safe
-        today_poms = PomodoroSession.query.filter_by(
-            user_id=current_user.id, mode="work"
-        ).filter(PomodoroSession.completed_at >= today_start).count() + 1 # +1 for the one we just added but haven't committed yet?
+        # Flush to ensure session_entry is available for the count query
+        db.session.flush()
         
-        # Actually, let's just commit first
-        db.session.commit()
-        
-        # Now update log
+        # Recalculate today's poms accurately
         today_poms = PomodoroSession.query.filter_by(
             user_id=current_user.id, mode="work"
         ).filter(PomodoroSession.completed_at >= today_start).count()
@@ -65,11 +60,8 @@ def add_session():
             db.session.add(log)
         else:
             log.pomodoros = today_poms
-        
-        db.session.commit()
-    else:
-        db.session.commit()
-            
+    
+    db.session.commit()
     return jsonify(session_entry.to_dict()), 201
 
 
