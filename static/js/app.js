@@ -1085,7 +1085,7 @@ async function loadDashboard() {
                     ${pendingTasks.length > 0 ? (pendingTasks[0].description || 'Integrating habit systems with real-time velocity tracking.') : 'Integrating habit systems with real-time velocity tracking for optimized executive output.'}
                 </p>
                 <div style="display:flex;gap:1rem;margin-top:1.5rem;justify-content:center;flex-wrap:wrap;">
-                    <button class="btn-primary" onclick="${pendingTasks.length > 0 ? `linkTaskToPom(${pendingTasks[0].id}, '${pendingTasks[0].title.replace(/'/g, "\\'")}').then(() => navigate('pomodoro'))` : "navigate('pomodoro')" }">▶ Start Session</button>
+                    <button class="btn-primary" onclick="${pendingTasks.length > 0 ? `linkTaskToPom(${pendingTasks[0].id}, '${pendingTasks[0].title.replace(/'/g, "\\'")}', 'task').then(() => navigate('pomodoro'))` : "navigate('pomodoro')" }">▶ Start Session</button>
                     <button class="btn-ghost" onclick="navigate('tasks')">View Tasks (${pendingTasks.length} pending)</button>
                 </div>
             </div>
@@ -1737,10 +1737,14 @@ async function loadPomodoro() {
     let taskProgressHtml = '';
     if (pomTaskId) {
         try {
-            const r = await fetch(`/api/tasks/${pomTaskId}`);
-            if (r.ok) {
-                const t = await r.json();
-                taskProgressHtml = `<div style="font-size:0.75rem;margin-top:0.35rem;">Progress: <strong>${t.poms_done || 0}/${t.poms_target || 1}</strong> Sessions</div>`;
+            const isTask = typeof pomTaskId === 'string' && pomTaskId.startsWith('task_');
+            if (isTask) {
+                const idOnly = pomTaskId.replace('task_', '');
+                const r = await fetch(`/api/tasks/${idOnly}`);
+                if (r.ok) {
+                    const t = await r.json();
+                    taskProgressHtml = `<div style="font-size:0.75rem;margin-top:0.35rem;">Progress: <strong>${t.poms_done || 0}/${t.poms_target || 1}</strong> Sessions</div>`;
+                }
             }
         } catch(e) {
             console.error("Failed to fetch task progress", e);
@@ -1979,7 +1983,7 @@ async function showTaskPicker() {
                         ${todayBlocks.map(b => {
                             const isCurrent = currentTimeStr >= b.start_time && currentTimeStr <= b.end_time;
                             return `
-                            <div class="card-recessed" style="cursor:pointer;padding:0.75rem;border:1px solid ${isCurrent ? 'var(--primary)' : 'var(--outline-variant)'};background:${isCurrent ? 'var(--surface-container-low)' : ''};" onclick="linkTaskToPom(${b.id}, '[Block] ${b.title.replace(/'/g, "\\'")}')">
+                            <div class="card-recessed" style="cursor:pointer;padding:0.75rem;border:1px solid ${isCurrent ? 'var(--primary)' : 'var(--outline-variant)'};background:${isCurrent ? 'var(--surface-container-low)' : ''};" onclick="linkTaskToPom(${b.id}, '[Block] ${b.title.replace(/'/g, "\\'")}', 'block')">
                                 <div style="display:flex;justify-content:space-between;align-items:start;">
                                     <div style="font-weight:700;font-size:0.82rem;color:#333;">${b.title}</div>
                                     ${isCurrent ? '<span class="pill" style="font-size:0.5rem;background:var(--primary);color:white;padding:0.1rem 0.4rem;">Live</span>' : ''}
@@ -1998,7 +2002,7 @@ async function showTaskPicker() {
                     </div>
                     <div style="max-height:400px;overflow-y:auto;display:flex;flex-direction:column;gap:0.6rem;padding-right:0.5rem;">
                         ${tasks.map(t => `
-                            <div class="task-card p${t.priority}" style="cursor:pointer;padding:0.75rem;" onclick="linkTaskToPom(${t.id}, '${t.title.replace(/'/g, "\\'")}')">
+                            <div class="task-card p${t.priority}" style="cursor:pointer;padding:0.75rem;" onclick="linkTaskToPom(${t.id}, '${t.title.replace(/'/g, "\\'")}', 'task')">
                                 <div style="font-weight:700;font-size:0.82rem;color:#333;">${t.title}</div>
                                 <div style="font-size:0.65rem;color:var(--outline);margin-top:0.25rem;">P${t.priority} · ${t.project}</div>
                             </div>
@@ -2049,16 +2053,19 @@ async function showTaskPicker() {
     };
 }
 
-async function linkTaskToPom(id, title) {
-    pomTaskId = id;
+async function linkTaskToPom(id, title, type = 'task') {
+    pomTaskId = `${type}_${id}`;
     pomTaskInput = title;
     
     let progressStr = '';
     try {
-        const r = await fetch(`/api/tasks/${id}`);
+        const endpoint = type === 'task' ? `/api/tasks/${id}` : `/api/schedule/${id}`;
+        const r = await fetch(endpoint);
         if (r.ok) {
             const t = await r.json();
-            progressStr = `<div style="font-size:0.7rem;color:var(--outline);margin-top:0.25rem;">Progress: ${t.poms_done || 0}/${t.poms_target || 1} Sessions</div>`;
+            if (type === 'task') {
+                progressStr = `<div style="font-size:0.7rem;color:var(--outline);margin-top:0.25rem;">Progress: ${t.poms_done || 0}/${t.poms_target || 1} Sessions</div>`;
+            }
         }
     } catch(e) {}
 
@@ -2213,13 +2220,29 @@ async function completePom() {
     showToast(pomMode === 'work' ? 'Sprint Complete!' : 'Break Over!');
     // Log session to server
     try {
+        let taskId = null;
+        let isBlock = false;
+        
+        if (pomTaskId) {
+            if (typeof pomTaskId === 'string' && pomTaskId.includes('_')) {
+                const parts = pomTaskId.split('_');
+                isBlock = parts[0] === 'block';
+                taskId = parseInt(parts[1]);
+            } else {
+                // Fallback for old state
+                taskId = parseInt(pomTaskId);
+            }
+        }
+
         const res = await fetch('/api/pomodoro/sessions', {
             method: 'POST', 
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({ 
                 mode: pomMode, 
                 duration: pomMode === 'work' ? 25 : (pomMode === 'short' ? 5 : 15),
-                task_name: pomTaskInput || (pomMode === 'work' ? 'Deep Work Session' : 'Executive Break')
+                task_name: pomTaskInput || (pomMode === 'work' ? 'Deep Work Session' : 'Executive Break'),
+                task_id: taskId,
+                is_block: isBlock
             })
         });
         
@@ -2232,36 +2255,22 @@ async function completePom() {
         showToast("Connection error — session saved locally only");
     }
 
-    // AUTO-COMPLETE LINKED TASK
-    if (pomMode === 'work' && pomTaskId) {
+    // Task completion check & cleanup
+    if (pomMode === 'work' && pomTaskId && !pomTaskId.toString().startsWith('block_')) {
         try {
-            const taskRes = await fetch(`/api/tasks/${pomTaskId}`);
+            const idOnly = pomTaskId.toString().replace('task_', '');
+            const taskRes = await fetch(`/api/tasks/${idOnly}`);
             if (taskRes.ok) {
                 const task = await taskRes.json();
-                const newDone = (task.poms_done || 0) + 1;
-                const target = task.poms_target || 1;
-                const isFinished = newDone >= target;
-
-                await fetch(`/api/tasks/${pomTaskId}`, {
-                    method: 'PUT',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ 
-                        poms_done: newDone,
-                        completed: isFinished 
-                    })
-                });
-
-                if (isFinished) {
+                if (task.completed) {
                     showToast(`Mission Accomplished: ${pomTaskInput}`);
-                    pomTaskId = null; // Clear after completion
+                    pomTaskId = null; 
                     pomTaskInput = '';
                 } else {
-                    showToast(`Session Logged: ${newDone}/${target} Pomodoros`);
+                    showToast(`Session Logged: ${task.poms_done}/${task.poms_target} Pomodoros`);
                 }
             }
-        } catch (e) {
-            console.error("Failed to auto-update task", e);
-        }
+        } catch (e) {}
     }
     
     // Refresh local session state
@@ -2286,6 +2295,7 @@ async function completePom() {
     if (currentPage === 'tasks') loadTasks();
     if (currentPage === 'task-hub') loadTaskHub();
     if (currentPage === 'team-grid') loadTeamGrid();
+    if (currentPage === 'tracker') if (typeof loadTracker === 'function') loadTracker();
 }
 
 function resetPom() {
@@ -2940,15 +2950,20 @@ async function handleAddTaskSubmit(e) {
 }
 
 function startFocusSession(taskId, taskTitle) {
-    pomTaskInput = taskTitle;
-    navigate('pomodoro');
-    setTimeout(() => {
-        const linkedEl = document.getElementById('pom-linked-task');
-        if (linkedEl) linkedEl.innerHTML = `<div style="color:var(--primary);font-weight:800;">${taskTitle}</div>`;
-        const taskField = document.getElementById('pom-task-field');
-        if (taskField) taskField.value = taskTitle;
-        togglePom(); // Auto-start
-    }, 100);
+    if (typeof window.startFocusSession === 'function') {
+        window.startFocusSession(taskId, taskTitle);
+    } else {
+        pomTaskInput = taskTitle;
+        pomTaskId = `task_${taskId}`;
+        navigate('pomodoro');
+        setTimeout(() => {
+            const linkedEl = document.getElementById('pom-linked-task');
+            if (linkedEl) linkedEl.innerHTML = `<div style="color:var(--primary);font-weight:800;">${taskTitle}</div>`;
+            const taskField = document.getElementById('pom-task-field');
+            if (taskField) taskField.value = taskTitle;
+            if (!pomIsRunning) togglePom();
+        }, 300);
+    }
 }
 
 // ═══════════════════════════════════════════════════════
@@ -4888,13 +4903,17 @@ window.startFocusSession = function(id, title) {
     if (overlay) overlay.remove();
     
     if (typeof linkTaskToPom === 'function') {
-        linkTaskToPom(id, title);
+        linkTaskToPom(id, title, 'task');
     } else {
+        window.pomTaskId = `task_${id}`;
         window.pomTaskInput = title;
     }
     
     if (typeof navigate === 'function') {
         navigate('pomodoro');
+        setTimeout(() => {
+            if (typeof togglePom === 'function' && !pomIsRunning) togglePom();
+        }, 300);
     }
 };
 
