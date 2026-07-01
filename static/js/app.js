@@ -856,7 +856,7 @@ function showLeadForm() {
     overlay.innerHTML = `
         <div class="modal-card anim-pop" style="max-width:500px;">
             <h3 class="mb-6">Capture New Lead</h3>
-            <form onsubmit="handleLeadSubmit(event)">
+            <form onsubmit="handleQuickLeadSubmit(event)">
                 <div class="mb-4">
                     <label class="label-sm">Name / Entity</label>
                     <input type="text" id="nl-name" class="input-well w-full" placeholder="Contact name" required>
@@ -895,7 +895,7 @@ function showLeadForm() {
     document.body.appendChild(overlay);
 }
 
-async function handleLeadSubmit(e) {
+async function handleQuickLeadSubmit(e) {
     e.preventDefault();
     const data = {
         name: document.getElementById('nl-name').value,
@@ -912,8 +912,12 @@ async function handleLeadSubmit(e) {
     });
     if (res.ok) {
         showToast('Lead captured in pipeline');
-        document.querySelector('.modal-overlay').remove();
-        loadLeads();
+        document.querySelector('.modal-overlay')?.remove();
+        if (typeof loadTeamGrid === 'function' && typeof currentPage !== 'undefined' && currentPage === 'team-grid') loadTeamGrid();
+        if (typeof loadLeads === 'function') loadLeads();
+    } else {
+        const err = await res.json().catch(() => ({}));
+        showToast('Error saving lead: ' + (err.error || res.statusText));
     }
 }
 
@@ -3991,8 +3995,11 @@ async function handleLeadUpdate(e, id) {
     });
     if (res.ok) {
         showToast('Lead protocol updated');
-        document.querySelector('.modal-overlay').remove();
+        document.querySelector('.modal-overlay')?.remove();
         loadLeads();
+    } else {
+        const err = await res.json().catch(() => ({}));
+        showToast('Error updating lead: ' + (err.error || res.statusText));
     }
 }
 
@@ -4414,7 +4421,14 @@ async function handleLeadSubmit(e) {
         notes: document.getElementById('ld-notes').value
     };
     const res = await fetch('/api/leads', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data) });
-    if (res.ok) { showToast('Lead saved'); document.querySelector('.modal-overlay')?.remove(); loadLeads(); }
+    if (res.ok) { 
+        showToast('Lead saved'); 
+        document.querySelector('.modal-overlay')?.remove(); 
+        loadLeads(); 
+    } else {
+        const err = await res.json().catch(() => ({}));
+        showToast('Error saving lead: ' + (err.error || res.statusText));
+    }
 }
 
 async function deleteLead(id) {
