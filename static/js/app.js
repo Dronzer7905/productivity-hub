@@ -3904,10 +3904,13 @@ async function showLeadEditModal(id) {
     overlay.className = 'modal-overlay';
     overlay.onclick = (e) => e.target === overlay && overlay.remove();
     overlay.innerHTML = `
-        <div class="modal-card anim-pop" style="max-width:500px;">
-            <h3 class="mb-6">Refine Lead Intel</h3>
-            <form onsubmit="handleLeadUpdate(event, '${id}')">
-                <div class="mb-4">
+        <div class="modal-card anim-pop" style="max-width:600px; max-height:90vh; display:flex; flex-direction:column; padding:0;">
+            <div style="padding:1.5rem 1.5rem 0 1.5rem;">
+                <h3 class="mb-4">Refine Lead Intel</h3>
+            </div>
+            <form onsubmit="handleLeadUpdate(event, '${id}')" style="display:flex;flex-direction:column; flex:1; overflow:hidden;">
+                <div style="padding:0 1.5rem; overflow-y:auto; flex:1; padding-bottom:1rem;">
+                    <div class="mb-4">
                     <label class="label-sm">Name / Entity</label>
                     <input type="text" id="el-name" class="input-well w-full" value="${escapeHTML(l.name) || ''}" required>
                 </div>
@@ -3915,7 +3918,7 @@ async function showLeadEditModal(id) {
                     <label class="label-sm">Organization</label>
                     <input type="text" id="el-company" class="input-well w-full" value="${escapeHTML(l.company) || ''}">
                 </div>
-                <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;" class="mb-4">
+                <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(220px, 1fr));gap:1rem;" class="mb-4">
                     <div>
                         <label class="label-sm">Valuation (₹)</label>
                         <input type="number" id="el-value" class="input-well w-full" value="${l.value || 0}">
@@ -3932,7 +3935,7 @@ async function showLeadEditModal(id) {
                         </select>
                     </div>
                 </div>
-                <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;" class="mb-4">
+                <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(220px, 1fr));gap:1rem;" class="mb-4">
                     <div>
                         <label class="label-sm">Category</label>
                         <input type="text" id="el-category" class="input-well w-full" value="${escapeHTML(l.category) || ''}" placeholder="e.g. Real Estate">
@@ -3942,7 +3945,7 @@ async function showLeadEditModal(id) {
                         <input type="text" id="el-source-link" class="input-well w-full" value="${escapeHTML(l.source_link) || ''}" placeholder="https://...">
                     </div>
                 </div>
-                <div class="mb-4" style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;">
+                <div class="mb-4" style="display:grid;grid-template-columns:repeat(auto-fit, minmax(220px, 1fr));gap:1rem;">
                     <div>
                         <label class="label-sm">Source</label>
                         <select id="el-source" class="input-well w-full">
@@ -3961,13 +3964,14 @@ async function showLeadEditModal(id) {
                         </select>
                     </div>
                 </div>
-                <div class="mb-6">
-                    <label class="label-sm">Internal Notes</label>
-                    <textarea id="el-notes" class="input-well w-full" style="height:80px;">${escapeHTML(l.notes) || ''}</textarea>
+                    <div class="mb-6">
+                        <label class="label-sm">Internal Notes</label>
+                        <textarea id="el-notes" class="input-well w-full" style="height:80px;">${escapeHTML(l.notes) || ''}</textarea>
+                    </div>
                 </div>
-                <div style="display:flex;gap:1rem;">
-                    <button type="submit" class="btn-primary" style="flex:2;">Update Intel</button>
-                    <button type="button" class="btn-ghost" style="flex:1;" onclick="this.closest('.modal-overlay').remove()">Dismiss</button>
+                <div style="padding:1rem 1.5rem 1.5rem 1.5rem; border-top:1px solid var(--outline-variant); display:flex; gap:1rem; justify-content:flex-end; background:var(--surface); border-bottom-left-radius:var(--radius-lg); border-bottom-right-radius:var(--radius-lg);">
+                    <button type="button" class="btn-ghost" style="padding:0.8rem 1.5rem;" onclick="this.closest('.modal-overlay').remove()">Dismiss</button>
+                    <button type="submit" class="btn-primary" style="padding:0.8rem 1.5rem;">Update Intel</button>
                 </div>
             </form>
         </div>
@@ -4325,10 +4329,13 @@ function showLeadForm() {
     const overlay = document.createElement('div');
     overlay.className = 'modal-overlay';
     overlay.innerHTML = `
-        <div class="modal-card anim-pop" style="max-width:550px;">
-            <h3 class="mb-6">Add New Contact</h3>
-            <form onsubmit="handleLeadSubmit(event)" style="display:flex;flex-direction:column;gap:1.25rem;">
-                <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.25rem;">
+        <div class="modal-card anim-pop" style="max-width:600px; max-height:90vh; display:flex; flex-direction:column; padding:0;">
+            <div style="padding:1.5rem 1.5rem 0 1.5rem;">
+                <h3 class="mb-4">Add New Contact</h3>
+            </div>
+            <form onsubmit="handleLeadSubmit(event)" style="display:flex;flex-direction:column; flex:1; overflow:hidden;">
+                <div style="padding:0 1.5rem; overflow-y:auto; flex:1; display:flex; flex-direction:column; gap:1.25rem; padding-bottom:1rem;">
+                    <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(220px, 1fr));gap:1.25rem;">
                     <div>
                         <label style="font-size:0.75rem;font-weight:700;color:var(--outline);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:0.4rem;display:block;">Contact Name *</label>
                         <input class="input-recessed" style="width:100%;padding:0.75rem 1rem;border:1px solid var(--outline-variant);border-radius:var(--radius-sm);font-weight:600;" type="text" id="ld-name" placeholder="e.g. Jane Doe" required>
@@ -4338,7 +4345,7 @@ function showLeadForm() {
                         <input class="input-recessed" style="width:100%;padding:0.75rem 1rem;border:1px solid var(--outline-variant);border-radius:var(--radius-sm);font-weight:600;" type="text" id="ld-company" placeholder="e.g. Acme Corp">
                     </div>
                 </div>
-                <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.25rem;">
+                <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(220px, 1fr));gap:1.25rem;">
                     <div>
                         <label style="font-size:0.75rem;font-weight:700;color:var(--outline);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:0.4rem;display:block;">Email Address</label>
                         <input class="input-recessed" style="width:100%;padding:0.75rem 1rem;border:1px solid var(--outline-variant);border-radius:var(--radius-sm);font-weight:600;" type="text" id="ld-email" placeholder="jane@example.com">
@@ -4348,7 +4355,7 @@ function showLeadForm() {
                         <input class="input-recessed" style="width:100%;padding:0.75rem 1rem;border:1px solid var(--outline-variant);border-radius:var(--radius-sm);font-weight:600;" type="text" id="ld-phone" placeholder="+1 (555) 000-0000">
                     </div>
                 </div>
-                <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.25rem;">
+                <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(220px, 1fr));gap:1.25rem;">
                     <div>
                         <label style="font-size:0.75rem;font-weight:700;color:var(--outline);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:0.4rem;display:block;">Pipeline Stage</label>
                         <select class="input-recessed" style="width:100%;padding:0.75rem 1rem;border:1px solid var(--outline-variant);border-radius:var(--radius-sm);font-weight:600;" id="ld-status">
@@ -4362,7 +4369,7 @@ function showLeadForm() {
                         <input class="input-recessed" style="width:100%;padding:0.75rem 1rem;border:1px solid var(--outline-variant);border-radius:var(--radius-sm);font-weight:600;" type="number" id="ld-value" placeholder="50000" step="100">
                     </div>
                 </div>
-                <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.25rem;">
+                <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(220px, 1fr));gap:1.25rem;">
                     <div>
                         <label style="font-size:0.75rem;font-weight:700;color:var(--outline);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:0.4rem;display:block;">Category</label>
                         <input class="input-recessed" style="width:100%;padding:0.75rem 1rem;border:1px solid var(--outline-variant);border-radius:var(--radius-sm);font-weight:600;" type="text" id="ld-category" placeholder="e.g. Real Estate">
@@ -4372,7 +4379,7 @@ function showLeadForm() {
                         <input class="input-recessed" style="width:100%;padding:0.75rem 1rem;border:1px solid var(--outline-variant);border-radius:var(--radius-sm);font-weight:600;" type="text" id="ld-source-link" placeholder="https://...">
                     </div>
                 </div>
-                <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.25rem;">
+                <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(220px, 1fr));gap:1.25rem;">
                     <div>
                         <label style="font-size:0.75rem;font-weight:700;color:var(--outline);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:0.4rem;display:block;">Source</label>
                         <select class="input-recessed" style="width:100%;padding:0.75rem 1rem;border:1px solid var(--outline-variant);border-radius:var(--radius-sm);font-weight:600;" id="ld-source">
@@ -4396,9 +4403,9 @@ function showLeadForm() {
                         <textarea class="input-recessed" style="width:100%;padding:0.75rem 1rem;border:1px solid var(--outline-variant);border-radius:var(--radius-sm);font-weight:600;resize:vertical;" id="ld-notes" placeholder="Any specific requirements or details..." rows="3"></textarea>
                     </div>
                 </div>
-                <div style="display:flex;gap:1rem;margin-top:1rem;">
-                    <button type="submit" class="btn-primary" style="flex:1;padding:0.8rem;">Save Lead</button>
-                    <button type="button" class="btn-ghost" style="flex:1;padding:0.8rem;" onclick="this.closest('.modal-overlay').remove()">Cancel</button>
+                <div style="padding:1rem 1.5rem 1.5rem 1.5rem; border-top:1px solid var(--outline-variant); display:flex; gap:1rem; justify-content:flex-end; background:var(--surface); border-bottom-left-radius:var(--radius-lg); border-bottom-right-radius:var(--radius-lg);">
+                    <button type="button" class="btn-ghost" style="padding:0.8rem 1.5rem;" onclick="this.closest('.modal-overlay').remove()">Cancel</button>
+                    <button type="submit" class="btn-primary" style="padding:0.8rem 1.5rem;">Save Lead</button>
                 </div>
             </form>
         </div>`;
