@@ -4,6 +4,7 @@ from flask_login import login_required, current_user
 
 from models import db
 from models.user import Team, TeamMember, User
+from models.invite import Invite
 
 team_bp = Blueprint("team", __name__)
 
@@ -99,3 +100,35 @@ def leave_team(team_id):
     db.session.delete(membership)
     db.session.commit()
     return jsonify({"message": "Left team"})
+
+@team_bp.route("/api/teams/collaborators", methods=["GET"])
+@login_required
+def get_collaborators():
+    # Collect unique names of collaborators
+    collaborators = set()
+    
+    # Add myself
+    collaborators.add(current_user.display_name or current_user.username)
+    
+    # Add teammates
+    memberships = TeamMember.query.filter_by(user_id=current_user.id).all()
+    for m in memberships:
+        for team_member in m.team.members:
+            u = team_member.user
+            collaborators.add(u.display_name or u.username)
+            
+    # Add users who invited me and I accepted
+    shares = Invite.query.filter_by(recipient_email=current_user.email, status='accepted').all()
+    for s in shares:
+        u = User.query.get(s.sender_id)
+        if u:
+            collaborators.add(u.display_name or u.username)
+            
+    # Add users I invited and they accepted
+    sent_shares = Invite.query.filter_by(sender_id=current_user.id, status='accepted').all()
+    for s in sent_shares:
+        u = User.query.filter_by(email=s.recipient_email).first()
+        if u:
+            collaborators.add(u.display_name or u.username)
+
+    return jsonify(sorted(list(collaborators)))

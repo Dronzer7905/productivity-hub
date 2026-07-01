@@ -21,6 +21,42 @@ let scheduleWatcher = null;
 let pomEndsAt = null;
 let activePomDuration = 25 * 60;
 let pomTaskId = null;
+let collaboratorsList = [];
+
+// CSRF & XSS utilities
+let csrfToken = '';
+const originalFetch = window.fetch;
+window.fetch = async function(url, options) {
+    options = options || {};
+    if (options.method && !['GET', 'HEAD', 'OPTIONS'].includes(options.method.toUpperCase())) {
+        if (!options.headers) options.headers = {};
+        options.headers['X-CSRFToken'] = csrfToken;
+    }
+    return originalFetch(url, options);
+};
+
+function escapeHTML(str) {
+    if (str === null || str === undefined) return '';
+    return String(str).replace(/[&<>'"]/g, 
+        tag => ({
+            '&': '&amp;',
+            '<': '&lt;',
+            '>': '&gt;',
+            "'": '&#39;',
+            '"': '&quot;'
+        }[tag] || tag)
+    );
+}
+
+async function fetchCsrfToken() {
+    try {
+        const res = await originalFetch('/api/csrf-token');
+        if (res.ok) {
+            const data = await res.json();
+            csrfToken = data.csrf_token;
+        }
+    } catch(e) { console.error("CSRF fetch failed", e); }
+}
 
 const NOTIFIED_NOTIFICATIONS_KEY = 'commandflow_notified_notifications';
 const POMODORO_STATE_KEY = 'commandflow_pomodoro_state';
@@ -81,6 +117,18 @@ async function fetchBlocks() {
         blocksCache = await r.json();
     } catch (e) {
         console.error("Failed to fetch blocks", e);
+    }
+}
+
+async function fetchCollaborators() {
+    if (!currentUser) return;
+    try {
+        const res = await fetch('/api/teams/collaborators');
+        if (res.ok) {
+            collaboratorsList = await res.json();
+        }
+    } catch (e) {
+        console.error("Failed to fetch collaborators", e);
     }
 }
 
@@ -551,6 +599,7 @@ function isMobile() {
 // ── Auth ────────────────────────────────────────────────
 async function checkAuth() {
     try {
+        await fetchCsrfToken();
         const res = await fetch('/api/auth/me');
         if (res.ok) {
             const data = await res.json();
@@ -559,6 +608,7 @@ async function checkAuth() {
             await fetchScheduleModes();
             initializeCurrentScheduleMode();
             updateUserUI();
+            await fetchCollaborators();
             navigate(currentPage);
             startNotificationPolling();
         } else {
@@ -655,6 +705,7 @@ async function handleAuthSubmit(e, mode) {
             currentUser = data.user;
             hideAuthScreen();
             updateUserUI();
+            await fetchCollaborators();
             navigate('dashboard');
             startNotificationPolling();
             showToast(`Welcome back, ${currentUser.display_name}`);
@@ -1140,7 +1191,7 @@ async function loadDashboard() {
                     : pendingTasks.slice(0,5).map(t => `
                         <div style="display:flex;align-items:center;gap:0.75rem;padding:0.75rem 0;border-bottom:1px solid var(--surface-container-high);">
                             <div style="width:8px;height:8px;border-radius:50%;flex-shrink:0;background:${t.priority===1?'var(--error)':t.priority===2?'var(--primary)':'var(--outline)'};"></div>
-                            <span style="flex:1;font-size:0.85rem;font-weight:600;color:#333;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${t.title}</span>
+                            <span style="flex:1;font-size:0.85rem;font-weight:600;color:#333;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHTML(t.title)}</span>
                             <span class="pill" style="font-size:0.55rem;flex-shrink:0;">P${t.priority}</span>
                         </div>
                     `).join('')
@@ -2003,8 +2054,8 @@ async function showTaskPicker() {
                     <div style="max-height:400px;overflow-y:auto;display:flex;flex-direction:column;gap:0.6rem;padding-right:0.5rem;">
                         ${tasks.map(t => `
                             <div class="task-card p${t.priority}" style="cursor:pointer;padding:0.75rem;" onclick="linkTaskToPom(${t.id}, '${t.title.replace(/'/g, "\\'")}', 'task')">
-                                <div style="font-weight:700;font-size:0.82rem;color:#333;">${t.title}</div>
-                                <div style="font-size:0.65rem;color:var(--outline);margin-top:0.25rem;">P${t.priority} · ${t.project}</div>
+                                <div style="font-weight:700;font-size:0.82rem;color:#333;">${escapeHTML(t.title)}</div>
+                                <div style="font-size:0.65rem;color:var(--outline);margin-top:0.25rem;">P${t.priority} · ${escapeHTML(t.project)}</div>
                             </div>
                         `).join('')}
                         ${tasks.length === 0 ? '<p style="text-align:center;padding:2rem;color:var(--outline);font-size:0.75rem;">No matching tasks found.</p>' : ''}
@@ -2396,7 +2447,7 @@ async function loadTasks() {
                         <div class="flex-between">
                             <div style="flex:1;">
                                 <div style="display:flex;align-items:center;gap:0.5rem;">
-                                    <h4 style="font-weight:800;color:#333;line-height:1.3;font-size:1rem;">${t.title}</h4>
+                                    <h4 style="font-weight:800;color:#333;line-height:1.3;font-size:1rem;">${escapeHTML(t.title)}</h4>
                                     <span class="pill" style="font-size:0.55rem;padding:0.15rem 0.5rem;background:var(--surface-container-high);">${t.project || 'General'}</span>
                                 </div>
                                 <div style="font-size:0.7rem;color:var(--outline);margin-top:0.4rem;display:flex;align-items:center;gap:1.25rem;">
@@ -2480,7 +2531,7 @@ async function showTaskDetailModal(id) {
                         <span class="pill" style="background:var(--primary);color:white;font-size:0.65rem;font-weight:800;">P${t.priority}</span>
                         <span class="label-overline" style="margin:0;">${t.project || 'General Protocol'}</span>
                     </div>
-                    <h2 style="font-size:2rem;letter-spacing:-0.03em;color:#1a1a1a;">${t.title}</h2>
+                    <h2 style="font-size:2rem;letter-spacing:-0.03em;color:#1a1a1a;">${escapeHTML(t.title)}</h2>
                 </div>
                 <button class="btn-ghost" style="width:40px;height:40px;padding:0;display:flex;align-items:center;justify-content:center;border-radius:50%;" onclick="this.closest('.modal-overlay').remove()">
                     <span class="material-symbols-outlined">close</span>
@@ -2753,12 +2804,12 @@ async function loadTaskHub(searchTerm = '') {
                                 </div>
                             </td>
                             <td style="font-weight:700;color:var(--primary);cursor:pointer;" onclick="toggleTaskDetails(${t.id})">
-                                ${t.title}
+                                ${escapeHTML(t.title)}
                                 <div id="details-${t.id}" class="hidden" style="font-size:0.75rem;font-weight:400;color:var(--outline);margin-top:0.5rem;padding:0.5rem;background:var(--surface-container-low);border-radius:var(--radius-sm);">
                                     ${t.description || 'No detailed mission parameters defined.'}
                                 </div>
                             </td>
-                            <td><span style="font-size:0.75rem;font-weight:800;color:var(--tertiary);">${t.project}</span></td>
+                            <td><span style="font-size:0.75rem;font-weight:800;color:var(--tertiary);">${escapeHTML(t.project)}</span></td>
                             <td style="font-size:0.7rem; font-weight:700;">${t.poms_done || 0}/${t.poms_target || 1}</td>
                             <td>
                                 <span style="display:inline-block;padding:0.2rem 0.5rem;border-radius:99px;font-size:0.65rem;font-weight:800;background:var(--surface-container-highest);color:var(--primary);">
@@ -3150,8 +3201,8 @@ async function renderTrackerContent() {
                                 <h5 style="font-weight:800;">${l.topic}</h5>
                                 <span class="pill" style="font-size:0.6rem;">${l.date}</span>
                             </div>
-                            <p style="font-size:0.75rem;color:var(--on-surface-variant);margin-top:0.5rem;">${l.notes}</p>
-                            <div style="font-size:0.65rem;color:var(--outline);margin-top:0.5rem;">Source: ${l.source} · Applied: ${l.applied_to}</div>
+                            <p style="font-size:0.75rem;color:var(--on-surface-variant);margin-top:0.5rem;">${escapeHTML(l.notes)}</p>
+                            <div style="font-size:0.65rem;color:var(--outline);margin-top:0.5rem;">Source: ${escapeHTML(l.source)} · Applied: ${l.applied_to}</div>
                         </div>
                     `).join('')}
                 </div>
@@ -3714,10 +3765,20 @@ async function loadLeads() {
                 return `
                 <div class="card-elevated mb-4" style="border-left: 4px solid ${conf.color}; padding: 1.25rem;">
                     <div class="flex-between mb-2">
-                        <div style="font-weight:800; font-size:1.1rem; color:#333;">${l.name}</div>
+                        <div style="font-weight:800; font-size:1.1rem; color:#333;">${escapeHTML(l.name)}</div>
                         <span class="pill" style="background:${conf.color}15; color:${conf.color}; font-size:0.55rem;">${conf.label}</span>
                     </div>
                     <div style="font-size:0.8rem; color:var(--outline); margin-bottom:0.75rem;">${l.company || 'Private Entity'}</div>
+                    <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin-bottom:1rem;">
+                        <div>
+                            <span class="label-overline" style="font-size:0.5rem; opacity:0.6;">Category</span>
+                            <div style="font-size:0.75rem; font-weight:700;">${l.category || 'General'}</div>
+                        </div>
+                        <div>
+                            <span class="label-overline" style="font-size:0.5rem; opacity:0.6;">Identified By</span>
+                            <div style="font-size:0.75rem; font-weight:700;">${l.identified_by || 'Unknown'}</div>
+                        </div>
+                    </div>
                     <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin-bottom:1rem;">
                         <div>
                             <span class="label-overline" style="font-size:0.5rem; opacity:0.6;">Valuation</span>
@@ -3751,7 +3812,7 @@ async function loadLeads() {
         </div>`;
     } else {
         const rows = leads.length === 0
-            ? `<tr><td colspan="8" style="text-align:center;padding:3rem;color:var(--outline);">No leads yet — click <strong>+ New Lead</strong></td></tr>`
+            ? `<tr><td colspan="9" style="text-align:center;padding:3rem;color:var(--outline);">No leads yet — click <strong>+ New Lead</strong></td></tr>`
             : leads.map((l,i)=>{
                 const conf = SC[l.status] || { color: '#888', label: l.status.toUpperCase() };
                 const safeN=(l.name||'').replace(/'/g,"\\'");
@@ -3760,12 +3821,13 @@ async function loadLeads() {
                 return `
                 <tr onmouseover="this.style.background='var(--surface-container-low)'" onmouseout="this.style.background=''">
                     <td style="padding:0.7rem 0.6rem;color:var(--outline);font-size:0.68rem;font-weight:700;text-align:center;">${i+1}</td>
-                    <td style="padding:0.7rem 0.4rem;"><div style="font-weight:800;color:#333;">${l.name||''}</div>${l.email?`<div style="font-size:0.62rem;color:var(--outline);">${l.email}</div>`:''}</td>
+                    <td style="padding:0.7rem 0.4rem;"><div style="font-weight:800;color:#333;">${escapeHTML(l.name) || ''}</div>${l.email?`<div style="font-size:0.62rem;color:var(--outline);">${l.email}</div>`:''}</td>
                     <td style="padding:0.7rem 0.4rem;color:var(--on-surface-variant);">${l.company||'—'}</td>
-                    <td style="padding:0.7rem 0.4rem;color:var(--outline);font-size:0.75rem;">${l.phone||'—'}</td>
+                    <td style="padding:0.7rem 0.4rem;color:var(--outline);font-size:0.75rem;">${l.category||'—'}</td>
+                    <td style="padding:0.7rem 0.4rem;color:var(--outline);font-size:0.75rem;">${l.identified_by||'—'}</td>
                     <td style="padding:0.7rem 0.4rem;"><select class="inline-select" style="background:${conf.color}18;color:${conf.color};border:1px solid ${conf.color}55;border-radius:99px;padding:0.22rem 0.55rem;font-size:0.63rem;font-weight:800;" onchange="updateLeadStatus('${l.id}',this.value)">${statusOpts}</select></td>
                     <td style="padding:0.7rem 0.4rem;font-weight:800;color:var(--primary);">₹${(l.value||0).toLocaleString()}</td>
-                    <td style="padding:0.7rem 0.4rem;max-width:160px;"><div style="font-size:0.7rem;color:var(--outline);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${l.notes||''}">${l.notes||'—'}</div></td>
+                    <td style="padding:0.7rem 0.4rem;max-width:160px;"><div style="font-size:0.7rem;color:var(--outline);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${escapeHTML(l.notes) || ''}">${l.notes||'—'}</div></td>
                     <td style="padding:0.7rem 0.4rem;"><div style="display:flex;gap:0.3rem;">
                         <button onclick="convertLeadToTask('${l.id}','${safeN}','${safeC}')" style="font-size:0.6rem;padding:0.25rem 0.5rem;border-radius:5px;border:1px solid var(--outline-variant);background:none;cursor:pointer;color:var(--primary);font-family:inherit;font-weight:700;">→ Task</button>
                         <button onclick="deleteLead('${l.id}')" style="font-size:0.6rem;padding:0.25rem 0.5rem;border-radius:5px;border:1px solid var(--error-container);background:none;cursor:pointer;color:var(--error);font-family:inherit;font-weight:700;">✕</button>
@@ -3789,12 +3851,12 @@ async function loadLeads() {
             <div class="card-elevated" style="padding:0; overflow:hidden;">
                 <table class="team-table" style="font-size:0.82rem;"><thead><tr>
                     <th style="width:34px;">#</th><th style="min-width:140px;">Name</th>
-                    <th>Company</th><th>Phone</th><th style="min-width:110px;">Stage</th>
+                    <th>Company</th><th>Category</th><th>Identified By</th><th style="min-width:110px;">Stage</th>
                     <th>Value</th><th style="min-width:150px;">Notes</th><th style="width:120px;">Actions</th>
                 </tr></thead><tbody>${rows}
                     <tr style="background:var(--surface-container-low);">
                         <td style="text-align:center;color:var(--outline);padding:0.5rem;">+</td>
-                        <td colspan="7" style="padding:0.4rem;"><input class="inline-edit" placeholder="Quick-add — type name and press Enter..." style="width:100%;font-weight:700;" onkeydown="if(event.key==='Enter')quickAddLead(this)"></td>
+                        <td colspan="8" style="padding:0.4rem;"><input class="inline-edit" placeholder="Quick-add — type name and press Enter..." style="width:100%;font-weight:700;" onkeydown="if(event.key==='Enter')quickAddLead(this)"></td>
                     </tr>
                 </tbody></table>
             </div>
@@ -3845,11 +3907,11 @@ async function showLeadEditModal(id) {
             <form onsubmit="handleLeadUpdate(event, '${id}')">
                 <div class="mb-4">
                     <label class="label-sm">Name / Entity</label>
-                    <input type="text" id="el-name" class="input-well w-full" value="${l.name || ''}" required>
+                    <input type="text" id="el-name" class="input-well w-full" value="${escapeHTML(l.name) || ''}" required>
                 </div>
                 <div class="mb-4">
                     <label class="label-sm">Organization</label>
-                    <input type="text" id="el-company" class="input-well w-full" value="${l.company || ''}">
+                    <input type="text" id="el-company" class="input-well w-full" value="${escapeHTML(l.company) || ''}">
                 </div>
                 <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;" class="mb-4">
                     <div>
@@ -3868,9 +3930,38 @@ async function showLeadEditModal(id) {
                         </select>
                     </div>
                 </div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;" class="mb-4">
+                    <div>
+                        <label class="label-sm">Category</label>
+                        <input type="text" id="el-category" class="input-well w-full" value="${escapeHTML(l.category) || ''}" placeholder="e.g. Real Estate">
+                    </div>
+                    <div>
+                        <label class="label-sm">Source Link</label>
+                        <input type="url" id="el-source-link" class="input-well w-full" value="${escapeHTML(l.source_link) || ''}" placeholder="https://...">
+                    </div>
+                </div>
+                <div class="mb-4" style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;">
+                    <div>
+                        <label class="label-sm">Source</label>
+                        <select id="el-source" class="input-well w-full">
+                            <option value="Direct" ${l.source==='Direct'?'selected':''}>Direct</option>
+                            <option value="Referral" ${l.source==='Referral'?'selected':''}>Referral</option>
+                            <option value="Website" ${l.source==='Website'?'selected':''}>Website</option>
+                            <option value="Social Media" ${l.source==='Social Media'?'selected':''}>Social Media</option>
+                            <option value="Event" ${l.source==='Event'?'selected':''}>Event</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="label-sm">Identified By</label>
+                        <select id="el-identified-by" class="input-well w-full">
+                            <option value="">Unknown</option>
+                            ${collaboratorsList.map(m=>`<option value="${escapeHTML(m)}"${l.identified_by===m?' selected':''}>${escapeHTML(m)}</option>`).join('')}
+                        </select>
+                    </div>
+                </div>
                 <div class="mb-6">
                     <label class="label-sm">Internal Notes</label>
-                    <textarea id="el-notes" class="input-well w-full" style="height:80px;">${l.notes || ''}</textarea>
+                    <textarea id="el-notes" class="input-well w-full" style="height:80px;">${escapeHTML(l.notes) || ''}</textarea>
                 </div>
                 <div style="display:flex;gap:1rem;">
                     <button type="submit" class="btn-primary" style="flex:2;">Update Intel</button>
@@ -3889,6 +3980,10 @@ async function handleLeadUpdate(e, id) {
         company: document.getElementById('el-company').value,
         value: parseFloat(document.getElementById('el-value').value),
         status: document.getElementById('el-status').value,
+        category: document.getElementById('el-category').value,
+        source: document.getElementById('el-source').value,
+        source_link: document.getElementById('el-source-link').value,
+        identified_by: document.getElementById('el-identified-by').value,
         notes: document.getElementById('el-notes').value
     };
     const res = await fetch(`/api/leads/${id}`, {
@@ -3918,7 +4013,7 @@ async function quickAddLead(input) {
 // ═══════════════════════════════════════════════════════
 // TEAM RADAR — Notion-style Grid with Assignee
 // ═══════════════════════════════════════════════════════
-const TEAM_MEMBERS = ['Ansh Gautam', 'Sourabh', 'Saurav', 'Aditya', 'The Team'];
+const WORK_LABELS = ['Deep Work', 'Admin', 'Meeting', 'Planning', 'Review', 'Client'];
 let currentTeamFilter = '';
 let currentTeamSearch = '';
 
@@ -3991,7 +4086,7 @@ async function loadTeamGrid(searchTerm = '') {
             <td style="width:160px;">
                 <select class="inline-select" style="font-size:0.75rem;font-weight:700;color:var(--on-surface-variant);background:none;border:none;width:100%;" onchange="updateTaskAssignee(${t.id},this.value)">
                     <option value="">Unassigned</option>
-                    ${TEAM_MEMBERS.map(m=>`<option value="${m}"${assignee===m?' selected':''}>${m}</option>`).join('')}
+                    ${collaboratorsList.map(m=>`<option value="${escapeHTML(m)}"${assignee===m?' selected':''}>${escapeHTML(m)}</option>`).join('')}
                 </select>
             </td>
             <td style="width:130px; font-size:0.75rem; font-weight:600; color:var(--outline);">
@@ -4064,7 +4159,7 @@ async function loadTeamGrid(searchTerm = '') {
                 <div style="display:flex; gap:0.5rem; width:${isMobile() ? '100%' : 'auto'};">
                     <select id="tg-filter-member" class="input-well" style="font-weight:700; border:none; background:var(--surface-container); flex:1;" onchange="loadTeamGrid(currentTeamSearch)">
                         <option value=""${currentTeamFilter===''?' selected':''}>All Units</option>
-                        ${TEAM_MEMBERS.map(m=>`<option value="${m}"${currentTeamFilter===m?' selected':''}>${m}</option>`).join('')}
+                        ${collaboratorsList.map(m=>`<option value="${escapeHTML(m)}"${currentTeamFilter===m?' selected':''}>${escapeHTML(m)}</option>`).join('')}
                     </select>
                     <button class="btn-ghost" onclick="openModal('share')">
                         <span class="material-symbols-outlined">share</span>
@@ -4170,7 +4265,7 @@ function showAddTeamTaskModal() {
                         <label style="font-size:0.75rem;font-weight:700;color:var(--outline);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:0.4rem;display:block;">Assignee</label>
                         <select class="input-recessed" style="width:100%;padding:0.75rem 1rem;border:1px solid var(--outline-variant);border-radius:var(--radius-sm);font-weight:600;" id="tt-assignee">
                             <option value="">Unassigned</option>
-                            ${TEAM_MEMBERS.map(m=>`<option value="${m}">${m}</option>`).join('')}
+                            ${collaboratorsList.map(m=>`<option value="${escapeHTML(m)}">${escapeHTML(m)}</option>`).join('')}
                         </select>
                     </div>
                 </div>
@@ -4262,9 +4357,39 @@ function showLeadForm() {
                         <input class="input-recessed" style="width:100%;padding:0.75rem 1rem;border:1px solid var(--outline-variant);border-radius:var(--radius-sm);font-weight:600;" type="number" id="ld-value" placeholder="50000" step="100">
                     </div>
                 </div>
-                <div>
-                    <label style="font-size:0.75rem;font-weight:700;color:var(--outline);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:0.4rem;display:block;">Additional Notes</label>
-                    <textarea class="input-recessed" style="width:100%;padding:0.75rem 1rem;border:1px solid var(--outline-variant);border-radius:var(--radius-sm);font-weight:600;resize:vertical;" id="ld-notes" placeholder="Any specific requirements or details..." rows="3"></textarea>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.25rem;">
+                    <div>
+                        <label style="font-size:0.75rem;font-weight:700;color:var(--outline);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:0.4rem;display:block;">Category</label>
+                        <input class="input-recessed" style="width:100%;padding:0.75rem 1rem;border:1px solid var(--outline-variant);border-radius:var(--radius-sm);font-weight:600;" type="text" id="ld-category" placeholder="e.g. Real Estate">
+                    </div>
+                    <div>
+                        <label style="font-size:0.75rem;font-weight:700;color:var(--outline);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:0.4rem;display:block;">Source Link</label>
+                        <input class="input-recessed" style="width:100%;padding:0.75rem 1rem;border:1px solid var(--outline-variant);border-radius:var(--radius-sm);font-weight:600;" type="url" id="ld-source-link" placeholder="https://...">
+                    </div>
+                </div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.25rem;">
+                    <div>
+                        <label style="font-size:0.75rem;font-weight:700;color:var(--outline);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:0.4rem;display:block;">Source</label>
+                        <select class="input-recessed" style="width:100%;padding:0.75rem 1rem;border:1px solid var(--outline-variant);border-radius:var(--radius-sm);font-weight:600;" id="ld-source">
+                            <option value="Direct">Direct</option>
+                            <option value="Referral">Referral</option>
+                            <option value="Website">Website</option>
+                            <option value="Social Media">Social Media</option>
+                            <option value="Event">Event</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label style="font-size:0.75rem;font-weight:700;color:var(--outline);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:0.4rem;display:block;">Identified By</label>
+                        <select class="input-recessed" style="width:100%;padding:0.75rem 1rem;border:1px solid var(--outline-variant);border-radius:var(--radius-sm);font-weight:600;" id="ld-identified-by">
+                            <option value="">Unknown</option>
+                            ${collaboratorsList.map(m=>`<option value="${escapeHTML(m)}">${escapeHTML(m)}</option>`).join('')}
+                        </select>
+                    </div>
+                </div>
+                    <div>
+                        <label style="font-size:0.75rem;font-weight:700;color:var(--outline);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:0.4rem;display:block;">Additional Notes</label>
+                        <textarea class="input-recessed" style="width:100%;padding:0.75rem 1rem;border:1px solid var(--outline-variant);border-radius:var(--radius-sm);font-weight:600;resize:vertical;" id="ld-notes" placeholder="Any specific requirements or details..." rows="3"></textarea>
+                    </div>
                 </div>
                 <div style="display:flex;gap:1rem;margin-top:1rem;">
                     <button type="submit" class="btn-primary" style="flex:1;padding:0.8rem;">Save Lead</button>
@@ -4284,6 +4409,10 @@ async function handleLeadSubmit(e) {
         phone: document.getElementById('ld-phone').value,
         status: document.getElementById('ld-status').value,
         value: parseFloat(document.getElementById('ld-value').value || 0),
+        category: document.getElementById('ld-category').value,
+        source: document.getElementById('ld-source').value,
+        source_link: document.getElementById('ld-source-link').value,
+        identified_by: document.getElementById('ld-identified-by').value,
         notes: document.getElementById('ld-notes').value
     };
     const res = await fetch('/api/leads', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data) });
@@ -4475,8 +4604,11 @@ async function deleteTask(id) {
 async function loadInvites(tab = 'received') {
     const c = document.getElementById('view-invites');
     let items = [];
-    const url = tab === 'received' ? '/api/invites/received' : '/api/invites/sent';
-    try { const r = await fetch(url); items = await r.json(); } catch(e) {}
+    try { 
+        const r = await fetch('/api/invites'); 
+        const data = await r.json(); 
+        items = tab === 'received' ? (data.received || []) : (data.sent || []);
+    } catch(e) { console.error(e); }
 
     const sectionMap = {
         'task-hub': 'Mission Matrix',

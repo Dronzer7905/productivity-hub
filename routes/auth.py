@@ -3,11 +3,13 @@ from flask_login import login_user, logout_user, login_required, current_user
 
 from models import db
 from models.user import User
+from extensions import limiter
 
 auth_bp = Blueprint("auth", __name__)
 
 
 @auth_bp.route("/api/auth/signup", methods=["POST"])
+@limiter.limit("5 per minute")
 def signup():
     data = request.get_json()
     username = (data.get("username") or "").strip().lower()
@@ -40,6 +42,7 @@ def signup():
 
 
 @auth_bp.route("/api/auth/login", methods=["POST"])
+@limiter.limit("5 per minute")
 def login():
     data = request.get_json()
     identifier = (data.get("username") or "").strip().lower()

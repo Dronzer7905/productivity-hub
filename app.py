@@ -12,9 +12,9 @@ Then open http://localhost:5000 in your browser.
 """
 
 import os
-from flask import Flask, render_template, send_from_directory
+from flask import Flask, render_template, send_from_directory, jsonify
 from flask_login import LoginManager
-
+from extensions import csrf, limiter
 from config import Config
 from models import db
 from models.user import User, Team, TeamMember
@@ -45,11 +45,21 @@ def create_app():
     app = Flask(__name__)
     app.config.from_object(Config)
 
+    # Secure Session Cookies
+    app.config.update(
+        SESSION_COOKIE_HTTPONLY=True,
+        SESSION_COOKIE_SAMESITE='Lax',
+        SESSION_COOKIE_SECURE=os.environ.get('SECURE_COOKIES', 'False').lower() == 'true',
+        WTF_CSRF_CHECK_DEFAULT=True
+    )
+
     # Ensure the instance folder exists for the database
     os.makedirs(app.instance_path, exist_ok=True)
 
     # Initialize extensions
     db.init_app(app)
+    csrf.init_app(app)
+    limiter.init_app(app)
     login_manager = LoginManager(app)
 
     @login_manager.user_loader
@@ -73,6 +83,11 @@ def create_app():
     @app.route("/")
     def index():
         return render_template("app.html")
+
+    @app.route("/api/csrf-token")
+    def get_csrf_token():
+        from flask_wtf.csrf import generate_csrf
+        return jsonify({"csrf_token": generate_csrf()})
 
     # Create tables
     with app.app_context():
@@ -108,9 +123,9 @@ def create_app():
 
     return app
 
+app = create_app()
 
 if __name__ == "__main__":
-    app = create_app()
     host = app.config.get("HOST", "0.0.0.0")
     port = app.config.get("PORT", 5000)
     debug = app.config.get("DEBUG", False)

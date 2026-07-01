@@ -4,6 +4,7 @@ import uuid
 from models import db
 from models.invite import Invite
 from models.user import User, Team, TeamMember
+from models.notification import Notification
 
 invites_bp = Blueprint("invites", __name__)
 
@@ -39,6 +40,18 @@ def create_invite():
         token=uuid.uuid4().hex
     )
     db.session.add(invite)
+    
+    # Notify recipient if they are already on the platform
+    recipient = User.query.filter_by(email=email).first()
+    if recipient:
+        note = Notification(
+            user_id=recipient.id,
+            type="info",
+            title="New Invite",
+            message=f"{current_user.display_name or current_user.username} invited you to {section}."
+        )
+        db.session.add(note)
+        
     db.session.commit()
     return jsonify(invite.to_dict()), 201
 
@@ -54,8 +67,38 @@ def accept_invite(invite_id):
     # In a real team system, we'd add the user to a team here.
     # For this app, we'll just mark it as accepted.
     
+    # Notify sender that invite was accepted
+    note = Notification(
+        user_id=invite.sender_id,
+        type="info",
+        title="Invite Accepted",
+        message=f"{current_user.display_name or current_user.username} accepted your invite for {invite.section}."
+    )
+    db.session.add(note)
+    
     db.session.commit()
     return jsonify({"message": f"Access granted to {invite.section}"})
+
+@invites_bp.route("/api/invites/<int:invite_id>/reject", methods=["PUT"])
+@login_required
+def reject_invite(invite_id):
+    invite = Invite.query.get_or_404(invite_id)
+    if invite.recipient_email != current_user.email:
+        return jsonify({"error": "Unauthorized"}), 403
+
+    invite.status = "declined"
+    
+    # Optionally notify sender
+    note = Notification(
+        user_id=invite.sender_id,
+        type="info",
+        title="Invite Declined",
+        message=f"{current_user.display_name or current_user.username} declined your invite for {invite.section}."
+    )
+    db.session.add(note)
+    
+    db.session.commit()
+    return jsonify({"message": "Invite declined"})
 
 @invites_bp.route("/api/invites/<int:invite_id>", methods=["DELETE"])
 @login_required

@@ -44,7 +44,14 @@ def add_session():
     # 1. Handle Task Progress (if it's a real task, not a schedule block)
     if mode == "work" and task_id and not is_block:
         from models.task import Task
-        task = Task.query.get(task_id)
+        from models.user import TeamMember
+        user_team_ids = [m.team_id for m in current_user.team_memberships]
+        
+        task = Task.query.filter(
+            (Task.id == task_id) & 
+            ((Task.user_id == current_user.id) | (Task.team_id.in_(user_team_ids)))
+        ).first()
+        
         if task:
             task.poms_done = (task.poms_done or 0) + 1
             if task.poms_done >= (task.poms_target or 1):
