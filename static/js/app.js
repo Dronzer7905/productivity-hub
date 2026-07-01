@@ -641,7 +641,11 @@ function renderAuthCard(mode) {
     container.innerHTML = `
     <div class="auth-card">
         <div class="auth-logo">
-            <span class="material-symbols-outlined" style="font-size:2rem;">token</span>
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="#1a1a1a" stroke-width="2" stroke-linejoin="round"/>
+                <path d="M2 17L12 22L22 17" stroke="#1a1a1a" stroke-width="2" stroke-linejoin="round"/>
+                <path d="M2 12L12 17L22 12" stroke="#1a1a1a" stroke-width="2" stroke-linejoin="round"/>
+            </svg>
         </div>
         <div class="auth-tag">COMMANDFLOW — SECURE ACCESS</div>
         <h2 style="font-size:1.5rem;font-weight:800;margin-bottom:2rem;">Welcome to the Workspace</h2>
@@ -670,13 +674,6 @@ function renderAuthCard(mode) {
                 ${mode === 'login' ? 'Access Workspace' : 'Initialize Protocol'}
             </button>
         </form>
-
-        ${mode === 'login' ? `
-            <div class="auth-quick-access">
-                <p class="label-sm mb-4">Demo Mode</p>
-                <button class="btn-ghost" onclick="quickLogin()" style="width:100%;font-size:0.75rem;">Login as Ansh (Seed Data)</button>
-            </div>
-        ` : ''}
 
         <div class="auth-footer">
             CommandFlow Workspace © 2026<br>
@@ -1005,7 +1002,8 @@ async function loadDashboard() {
     const completedTasks = tasks.filter(t => t.completed);
     const pendingP1 = pendingTasks.filter(t => t.priority === 1).length;
     const todayPoms = stats.today_pomodoros || 0;
-    const velocityPct = Math.min(100, Math.round((todayPoms / 9) * 100));
+    const targetPoms = parseInt(localStorage.getItem('at-target-poms')) || 9;
+    const velocityPct = Math.min(100, Math.round((todayPoms / targetPoms) * 100));
     const gaugeOffset = 553 - (velocityPct / 100) * 553;
 
     if (isMobile()) {
@@ -1122,7 +1120,7 @@ async function loadDashboard() {
                             style="transition:stroke-dashoffset 1s ease;"></circle>
                 </svg>
                 <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;">
-                    <span style="font-size:2.2rem;font-weight:800;color:#333;line-height:1;">${todayPoms}<span style="font-size:0.9rem;font-weight:400;color:var(--outline);">/9</span></span>
+                    <span style="font-size:2.2rem;font-weight:800;color:#333;line-height:1;">${todayPoms}<span style="font-size:0.9rem;font-weight:400;color:var(--outline);">/${targetPoms}</span></span>
                     <span class="label-overline" style="display:block;margin-top:0.4rem;">Pomodoros</span>
                 </div>
             </div>
@@ -1149,7 +1147,7 @@ async function loadDashboard() {
                     <span class="material-symbols-outlined" style="color:var(--primary);">timer</span>
                     <span class="pill pill-green">${velocityPct}%</span>
                 </div>
-                <span class="stat-value">${todayPoms}/9</span>
+                <span class="stat-value">${todayPoms}/${targetPoms}</span>
                 <span class="stat-label">Sessions Today</span>
             </div>
             <div class="stat-well" style="cursor:pointer;" onclick="navigate('tracker')">
@@ -1955,7 +1953,7 @@ async function loadPomodoro() {
 
                 <!-- Session Dots -->
                 <div>
-                    <div style="font-size:0.6rem;font-weight:800;text-transform:uppercase;letter-spacing:0.1em;color:var(--outline);text-align:center;margin-bottom:0.75rem;">Today's Sessions (${completedWork}/9)</div>
+                    <div style="font-size:0.6rem;font-weight:800;text-transform:uppercase;letter-spacing:0.1em;color:var(--outline);text-align:center;margin-bottom:0.75rem;">Today's Sessions (${completedWork}/${parseInt(localStorage.getItem('at-target-poms')) || 9})</div>
                     <div class="pom-dots" id="pom-dot-grid"></div>
                 </div>
 
@@ -4538,6 +4536,17 @@ function loadSettings() {
                         </div>
                         <div class="toggle-switch ${settings.rollover?'on':''}" onclick="toggleSetting('at-rollover', this)">
                             <div class="toggle-knob shadow-md"></div>
+                        </div>
+                    </div>
+
+                    <div class="flex items-center justify-between neumorphic-inset bg-surface-container-low p-6 md:p-8 rounded-[2rem]">
+                        <div class="pr-4">
+                            <h4 class="font-bold text-on-surface text-sm md:text-base">Daily Pomodoro Target</h4>
+                            <p class="text-[10px] md:text-xs text-outline mt-1">Sessions required to hit 100% velocity.</p>
+                        </div>
+                        <div class="flex items-center gap-4">
+                            <input type="range" min="1" max="20" value="${parseInt(localStorage.getItem('at-target-poms')) || 9}" class="w-24 md:w-32" oninput="this.nextElementSibling.textContent = this.value; localStorage.setItem('at-target-poms', this.value); if(currentPage==='dashboard')loadDashboard();">
+                            <span class="text-lg font-bold w-6 text-center">${parseInt(localStorage.getItem('at-target-poms')) || 9}</span>
                         </div>
                     </div>
                 </div>
