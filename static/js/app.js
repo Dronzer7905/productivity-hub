@@ -3939,7 +3939,7 @@ async function showLeadEditModal(id) {
                     </div>
                     <div>
                         <label class="label-sm">Source Link</label>
-                        <input type="url" id="el-source-link" class="input-well w-full" value="${escapeHTML(l.source_link) || ''}" placeholder="https://...">
+                        <input type="text" id="el-source-link" class="input-well w-full" value="${escapeHTML(l.source_link) || ''}" placeholder="https://...">
                     </div>
                 </div>
                 <div class="mb-4" style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;">
@@ -4341,7 +4341,7 @@ function showLeadForm() {
                 <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.25rem;">
                     <div>
                         <label style="font-size:0.75rem;font-weight:700;color:var(--outline);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:0.4rem;display:block;">Email Address</label>
-                        <input class="input-recessed" style="width:100%;padding:0.75rem 1rem;border:1px solid var(--outline-variant);border-radius:var(--radius-sm);font-weight:600;" type="email" id="ld-email" placeholder="jane@example.com">
+                        <input class="input-recessed" style="width:100%;padding:0.75rem 1rem;border:1px solid var(--outline-variant);border-radius:var(--radius-sm);font-weight:600;" type="text" id="ld-email" placeholder="jane@example.com">
                     </div>
                     <div>
                         <label style="font-size:0.75rem;font-weight:700;color:var(--outline);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:0.4rem;display:block;">Phone Number</label>
@@ -4369,7 +4369,7 @@ function showLeadForm() {
                     </div>
                     <div>
                         <label style="font-size:0.75rem;font-weight:700;color:var(--outline);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:0.4rem;display:block;">Source Link</label>
-                        <input class="input-recessed" style="width:100%;padding:0.75rem 1rem;border:1px solid var(--outline-variant);border-radius:var(--radius-sm);font-weight:600;" type="url" id="ld-source-link" placeholder="https://...">
+                        <input class="input-recessed" style="width:100%;padding:0.75rem 1rem;border:1px solid var(--outline-variant);border-radius:var(--radius-sm);font-weight:600;" type="text" id="ld-source-link" placeholder="https://...">
                     </div>
                 </div>
                 <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.25rem;">
